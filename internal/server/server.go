@@ -18,7 +18,7 @@ import (
 type Server struct {
 	grpcServer *grpc.Server
 	httpServer *http.Server
-	
+
 	grpcPort int
 	httpPort int
 }
@@ -41,47 +41,50 @@ func New(cfg Config) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	// Create gRPC server
 	s.grpcServer = grpc.NewServer()
-	
+
 	// Register services
 	authv3.RegisterAuthorizationServer(s.grpcServer, NewAuthzServer())
 	parsecv1.RegisterTokenExchangeServer(s.grpcServer, NewExchangeServer())
-	
+
 	// Start gRPC server
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.grpcPort))
 	if err != nil {
 		return fmt.Errorf("failed to listen on gRPC port %d: %w", s.grpcPort, err)
 	}
-	
+
 	go func() {
 		fmt.Printf("gRPC server listening on :%d\n", s.grpcPort)
 		if err := s.grpcServer.Serve(grpcListener); err != nil {
 			fmt.Printf("gRPC server error: %v\n", err)
 		}
 	}()
-	
+
 	// Create HTTP server with grpc-gateway
-	mux := runtime.NewServeMux()
+	// Register custom marshaler for application/x-www-form-urlencoded (RFC 8693 compliance)
+	mux := runtime.NewServeMux(
+		runtime.WithMarshalerOption("application/x-www-form-urlencoded", NewFormMarshaler()),
+	)
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
-	
+
 	// Register HTTP handlers (transcoding from gRPC)
 	endpoint := fmt.Sprintf("localhost:%d", s.grpcPort)
 	if err := parsecv1.RegisterTokenExchangeHandlerFromEndpoint(ctx, mux, endpoint, opts); err != nil {
 		return fmt.Errorf("failed to register token exchange handler: %w", err)
 	}
-	
+
 	// Start HTTP server
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.httpPort),
 		Handler: mux,
 	}
-	
+
 	go func() {
 		fmt.Printf("HTTP server (grpc-gateway) listening on :%d\n", s.httpPort)
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Printf("HTTP server error: %v\n", err)
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -90,11 +93,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.grpcServer != nil {
 		s.grpcServer.GracefulStop()
 	}
-	
+
 	if s.httpServer != nil {
 		return s.httpServer.Shutdown(ctx)
 	}
-	
+
 	return nil
 }
-

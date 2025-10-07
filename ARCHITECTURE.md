@@ -57,6 +57,23 @@ Implements RFC 8693 OAuth 2.0 Token Exchange:
 - Accepts external tokens, returns transaction tokens
 - Fully RFC 8693 compliant message structure
 
+**RFC 8693 Compliance:**
+The token exchange endpoint supports `application/x-www-form-urlencoded` as required by [RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html):
+- Custom marshaler registered with grpc-gateway
+- Automatically decodes form-encoded requests
+- Also accepts JSON for gRPC-style clients
+- Responses are JSON (standard OAuth 2.0 token response)
+
+Example RFC 8693 request:
+```bash
+curl -X POST http://localhost:8080/v1/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  -d "subject_token=eyJhbGc..." \
+  -d "subject_token_type=urn:ietf:params:oauth:token-type:jwt" \
+  -d "audience=https://api.example.com"
+```
+
 ## Project Structure
 
 ```
@@ -73,7 +90,8 @@ parsec/
 │   ├── server/
 │   │   ├── server.go            # gRPC + HTTP server setup
 │   │   ├── authz.go             # ext_authz implementation
-│   │   └── exchange.go          # Token exchange implementation
+│   │   ├── exchange.go          # Token exchange implementation
+│   │   └── form_marshaler.go   # RFC 8693 form encoding support
 │   ├── validator/               # Credential validators (TODO)
 │   ├── issuer/                  # Transaction token issuer (TODO)
 │   ├── trust/                   # Trust store (TODO)
@@ -93,6 +111,9 @@ parsec/
 - [x] HTTP server with grpc-gateway transcoding
 - [x] Envoy ext_authz service skeleton
 - [x] Token exchange service skeleton
+- [x] RFC 8693 compliance (form-urlencoded support)
+- [x] Custom marshaler for grpc-gateway
+- [x] Integration tests for both encodings
 - [x] Basic build and run
 
 ### 🚧 TODO
