@@ -1,0 +1,12 @@
+version: v1
+name: buf.build/alechenninger/parsec
+deps:
+  - buf.build/envoyproxy/protoc-gen-validate
+  - buf.build/googleapis/googleapis
+lint:
+  use:
+    - DEFAULT
+breaking:
+  use:
+    - FILE
+
