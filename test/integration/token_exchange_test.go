@@ -17,7 +17,7 @@ import (
 )
 
 // setupTestDependencies creates stub implementations for testing
-func setupTestDependencies() (trust.Store, issuer.Issuer) {
+func setupTestDependencies() (trust.Store, issuer.Registry) {
 	trustStore := trust.NewStubStore()
 	trustStore.AddDomain(&trust.Domain{
 		Name:          "default",
@@ -28,9 +28,11 @@ func setupTestDependencies() (trust.Store, issuer.Issuer) {
 	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
 	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
 
-	tokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	issuerRegistry := issuer.NewSimpleRegistry()
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
 
-	return trustStore, tokenIssuer
+	return trustStore, issuerRegistry
 }
 
 // TestTokenExchangeFormEncoded tests that the token exchange endpoint

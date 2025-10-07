@@ -15,19 +15,47 @@ import (
 	"github.com/alechenninger/parsec/internal/validator"
 )
 
+// TokenTypeSpec specifies a token type to issue and how to deliver it
+type TokenTypeSpec struct {
+	// Type is the token type to issue
+	Type issuer.TokenType
+
+	// HeaderName is the HTTP header to use for this token
+	// e.g., "Transaction-Token", "Authorization", "X-Custom-Token"
+	HeaderName string
+}
+
+// IssuedTokens contains the issued tokens
+type IssuedTokens struct {
+	// Tokens maps token types to their issued tokens
+	Tokens map[issuer.TokenType]*issuer.Token
+}
+
 // AuthzServer implements Envoy's ext_authz Authorization service
 type AuthzServer struct {
 	authv3.UnimplementedAuthorizationServer
 
-	trustStore trust.Store
-	issuer     issuer.Issuer
+	trustStore     trust.Store
+	issuerRegistry issuer.Registry
+
+	// TokenTypesToIssue specifies which token types to issue and their headers
+	// This could come from configuration in the future
+	TokenTypesToIssue []TokenTypeSpec
 }
 
 // NewAuthzServer creates a new ext_authz server
-func NewAuthzServer(trustStore trust.Store, iss issuer.Issuer) *AuthzServer {
+func NewAuthzServer(trustStore trust.Store, issuerRegistry issuer.Registry) *AuthzServer {
+	// Default: Issue transaction tokens
+	// In the future, this could be configured per-route, per-domain, etc.
 	return &AuthzServer{
-		trustStore: trustStore,
-		issuer:     iss,
+		trustStore:     trustStore,
+		issuerRegistry: issuerRegistry,
+		TokenTypesToIssue: []TokenTypeSpec{
+			{
+				Type:       issuer.TokenTypeTransactionToken,
+				HeaderName: "Transaction-Token",
+			},
+		},
 	}
 }
 
@@ -52,14 +80,27 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("validation failed: %v", err)), nil
 	}
 
-	// 3. Issue transaction token
+	// 3. Issue tokens based on configuration
 	reqCtx := s.buildRequestContext(req)
-	token, err := s.issuer.Issue(ctx, result, reqCtx)
+	issuedTokens, err := s.issueTokens(ctx, result, reqCtx)
 	if err != nil {
-		return s.denyResponse(codes.Internal, fmt.Sprintf("failed to issue token: %v", err)), nil
+		return s.denyResponse(codes.Internal, fmt.Sprintf("failed to issue tokens: %v", err)), nil
 	}
 
-	// 4. Return OK with transaction token in header
+	// 4. Build response headers from issued tokens
+	responseHeaders := make([]*corev3.HeaderValueOption, 0, len(issuedTokens.Tokens))
+	for _, spec := range s.TokenTypesToIssue {
+		if token, ok := issuedTokens.Tokens[spec.Type]; ok {
+			responseHeaders = append(responseHeaders, &corev3.HeaderValueOption{
+				Header: &corev3.HeaderValue{
+					Key:   spec.HeaderName,
+					Value: token.Value,
+				},
+			})
+		}
+	}
+
+	// 5. Return OK with issued tokens in headers
 	// Remove the external credential headers so they don't leak to backend
 	// This creates a security boundary - external credentials stay outside
 	return &authv3.CheckResponse{
@@ -68,14 +109,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		},
 		HttpResponse: &authv3.CheckResponse_OkResponse{
 			OkResponse: &authv3.OkHttpResponse{
-				Headers: []*corev3.HeaderValueOption{
-					{
-						Header: &corev3.HeaderValue{
-							Key:   "Transaction-Token",
-							Value: token.Value,
-						},
-					},
-				},
+				Headers: responseHeaders,
 				// Remove external credential headers - security boundary
 				HeadersToRemove: headersUsed,
 			},
@@ -83,10 +117,35 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 	}, nil
 }
 
+// issueTokens issues all configured token types
+func (s *AuthzServer) issueTokens(ctx context.Context, result *validator.Result, reqCtx *issuer.RequestContext) (*IssuedTokens, error) {
+	tokens := make(map[issuer.TokenType]*issuer.Token)
+
+	for _, spec := range s.TokenTypesToIssue {
+		// Get the issuer for this token type
+		iss, err := s.issuerRegistry.GetIssuer(spec.Type)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get issuer for %s: %w", spec.Type, err)
+		}
+
+		// Issue the token
+		token, err := iss.Issue(ctx, result, reqCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to issue %s: %w", spec.Type, err)
+		}
+
+		tokens[spec.Type] = token
+	}
+
+	return &IssuedTokens{Tokens: tokens}, nil
+}
+
 // extractCredential extracts credentials from the Envoy request
 // Returns the credential and the list of headers that were used to extract it
 func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (validator.Credential, []string, error) {
 	httpReq := req.GetAttributes().GetRequest().GetHttp()
+	// TODO: mtls e.g. cert := req.GetAttributes().GetSource().GetCertificate()
+
 	if httpReq == nil {
 		return nil, nil, fmt.Errorf("no HTTP request attributes")
 	}
@@ -98,8 +157,7 @@ func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (validator.Cre
 	}
 
 	// Extract bearer token
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
 
 		// For bearer tokens, we need to determine the issuer
 		// Options:

@@ -40,12 +40,19 @@ func run() error {
 	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
 	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
 
-	// Create transaction token issuer
-	tokenIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+	// Create issuer registry
+	issuerRegistry := issuer.NewSimpleRegistry()
+
+	// Register issuers for different token types
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+
+	// TODO: Register other token types as needed
+	// issuerRegistry.Register(issuer.TokenTypeAccessToken, accessTokenIssuer)
 
 	// Create service handlers
-	authzServer := server.NewAuthzServer(trustStore, tokenIssuer)
-	exchangeServer := server.NewExchangeServer(trustStore, tokenIssuer)
+	authzServer := server.NewAuthzServer(trustStore, issuerRegistry)
+	exchangeServer := server.NewExchangeServer(trustStore, issuerRegistry)
 
 	// Create server configuration
 	cfg := server.Config{

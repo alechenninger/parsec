@@ -14,15 +14,15 @@ import (
 type ExchangeServer struct {
 	parsecv1.UnimplementedTokenExchangeServer
 
-	trustStore trust.Store
-	issuer     issuer.Issuer
+	trustStore     trust.Store
+	issuerRegistry issuer.Registry
 }
 
 // NewExchangeServer creates a new token exchange server
-func NewExchangeServer(trustStore trust.Store, iss issuer.Issuer) *ExchangeServer {
+func NewExchangeServer(trustStore trust.Store, issuerRegistry issuer.Registry) *ExchangeServer {
 	return &ExchangeServer{
-		trustStore: trustStore,
-		issuer:     iss,
+		trustStore:     trustStore,
+		issuerRegistry: issuerRegistry,
 	}
 }
 
@@ -55,7 +55,21 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}
 
-	// 3. Issue transaction token
+	// 3. Determine which token type to issue
+	// RFC 8693: If requested_token_type is not specified, default to access_token
+	// For parsec, we default to transaction tokens
+	requestedTokenType := issuer.TokenTypeTransactionToken
+	if req.RequestedTokenType != "" {
+		requestedTokenType = issuer.TokenType(req.RequestedTokenType)
+	}
+
+	// Get the issuer for the requested token type
+	iss, err := s.issuerRegistry.GetIssuer(requestedTokenType)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported requested_token_type %s: %w", requestedTokenType, err)
+	}
+
+	// 4. Issue the token
 	reqCtx := &issuer.RequestContext{
 		Method: "TokenExchange",
 		Path:   "/v1/token",
@@ -65,15 +79,15 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		},
 	}
 
-	token, err := s.issuer.Issue(ctx, result, reqCtx)
+	token, err := iss.Issue(ctx, result, reqCtx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to issue transaction token: %w", err)
+		return nil, fmt.Errorf("failed to issue token: %w", err)
 	}
 
-	// 4. Return response
+	// 5. Return response
 	return &parsecv1.TokenExchangeResponse{
 		AccessToken:     token.Value,
-		IssuedTokenType: token.Type,
+		IssuedTokenType: string(requestedTokenType),
 		TokenType:       "Bearer",
 		ExpiresIn:       int64(token.ExpiresAt.Sub(token.IssuedAt).Seconds()),
 		Scope:           req.Scope,

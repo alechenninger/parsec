@@ -27,9 +27,11 @@ func TestAuthzServer_Check(t *testing.T) {
 	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
 	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
 
-	tokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	issuerRegistry := issuer.NewSimpleRegistry()
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
 
-	authzServer := NewAuthzServer(trustStore, tokenIssuer)
+	authzServer := NewAuthzServer(trustStore, issuerRegistry)
 
 	t.Run("successful authorization", func(t *testing.T) {
 		req := &authv3.CheckRequest{
