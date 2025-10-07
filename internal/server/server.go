@@ -21,19 +21,27 @@ type Server struct {
 
 	grpcPort int
 	httpPort int
+
+	authzServer    *AuthzServer
+	exchangeServer *ExchangeServer
 }
 
 // Config contains server configuration
 type Config struct {
 	GRPCPort int
 	HTTPPort int
+
+	AuthzServer    *AuthzServer
+	ExchangeServer *ExchangeServer
 }
 
 // New creates a new server with the given configuration
 func New(cfg Config) *Server {
 	return &Server{
-		grpcPort: cfg.GRPCPort,
-		httpPort: cfg.HTTPPort,
+		grpcPort:       cfg.GRPCPort,
+		httpPort:       cfg.HTTPPort,
+		authzServer:    cfg.AuthzServer,
+		exchangeServer: cfg.ExchangeServer,
 	}
 }
 
@@ -43,8 +51,8 @@ func (s *Server) Start(ctx context.Context) error {
 	s.grpcServer = grpc.NewServer()
 
 	// Register services
-	authv3.RegisterAuthorizationServer(s.grpcServer, NewAuthzServer())
-	parsecv1.RegisterTokenExchangeServer(s.grpcServer, NewExchangeServer())
+	authv3.RegisterAuthorizationServer(s.grpcServer, s.authzServer)
+	parsecv1.RegisterTokenExchangeServer(s.grpcServer, s.exchangeServer)
 
 	// Start gRPC server
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.grpcPort))

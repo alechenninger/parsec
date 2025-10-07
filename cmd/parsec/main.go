@@ -6,8 +6,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
+	"github.com/alechenninger/parsec/internal/trust"
+	"github.com/alechenninger/parsec/internal/validator"
 )
 
 func main() {
@@ -21,10 +25,34 @@ func run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Initialize components with stub implementations
+	// TODO: Replace with real implementations
+
+	// Create trust store with default trust domain
+	trustStore := trust.NewStubStore()
+	trustStore.AddDomain(&trust.Domain{
+		Name:          "default",
+		Issuer:        "default",
+		ValidatorType: validator.CredentialTypeBearer,
+	})
+
+	// Add a stub validator
+	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
+	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
+
+	// Create transaction token issuer
+	tokenIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+
+	// Create service handlers
+	authzServer := server.NewAuthzServer(trustStore, tokenIssuer)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenIssuer)
+
 	// Create server configuration
 	cfg := server.Config{
-		GRPCPort: 9090,
-		HTTPPort: 8080,
+		GRPCPort:       9090,
+		HTTPPort:       8080,
+		AuthzServer:    authzServer,
+		ExchangeServer: exchangeServer,
 	}
 
 	// Create and start server
@@ -36,6 +64,8 @@ func run() error {
 	fmt.Println("parsec is running")
 	fmt.Println("  gRPC (ext_authz):     localhost:9090")
 	fmt.Println("  HTTP (token exchange): http://localhost:8080/v1/token")
+	fmt.Println()
+	fmt.Println("Note: Using stub implementations for testing")
 
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)

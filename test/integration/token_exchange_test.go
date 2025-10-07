@@ -10,20 +10,45 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
+	"github.com/alechenninger/parsec/internal/trust"
+	"github.com/alechenninger/parsec/internal/validator"
 )
+
+// setupTestDependencies creates stub implementations for testing
+func setupTestDependencies() (trust.Store, issuer.Issuer) {
+	trustStore := trust.NewStubStore()
+	trustStore.AddDomain(&trust.Domain{
+		Name:          "default",
+		Issuer:        "default",
+		ValidatorType: validator.CredentialTypeBearer,
+	})
+
+	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
+	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
+
+	tokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+
+	return trustStore, tokenIssuer
+}
 
 // TestTokenExchangeFormEncoded tests that the token exchange endpoint
 // accepts application/x-www-form-urlencoded requests per RFC 8693
 func TestTokenExchangeFormEncoded(t *testing.T) {
-	// Start server
-	srv := server.New(server.Config{
-		GRPCPort: 19090,
-		HTTPPort: 18080,
-	})
-
+	// Set up dependencies
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	trustStore, tokenIssuer := setupTestDependencies()
+
+	// Start server
+	srv := server.New(server.Config{
+		GRPCPort:       19090,
+		HTTPPort:       18080,
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenIssuer),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenIssuer),
+	})
 
 	if err := srv.Start(ctx); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
@@ -88,14 +113,19 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 // TestTokenExchangeJSON tests that the endpoint still accepts JSON
 // for clients that prefer gRPC-style requests
 func TestTokenExchangeJSON(t *testing.T) {
-	// Start server
-	srv := server.New(server.Config{
-		GRPCPort: 19091,
-		HTTPPort: 18081,
-	})
-
+	// Set up dependencies
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	trustStore, tokenIssuer := setupTestDependencies()
+
+	// Start server
+	srv := server.New(server.Config{
+		GRPCPort:       19091,
+		HTTPPort:       18081,
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenIssuer),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenIssuer),
+	})
 
 	if err := srv.Start(ctx); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
