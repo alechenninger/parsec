@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package parsec.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/alechenninger/parsec/api/gen/parsec/v1;parsecv1";
+
+// TokenExchange implements RFC 8693 OAuth 2.0 Token Exchange.
+// https://datatracker.ietf.org/doc/html/rfc8693
+service TokenExchange {
+  // Exchange performs token exchange according to RFC 8693.
+  // The HTTP mapping follows the OAuth 2.0 token endpoint specification.
+  rpc Exchange(TokenExchangeRequest) returns (TokenExchangeResponse) {
+    option (google.api.http) = {
+      post: "/v1/token"
+      body: "*"
+    };
+  }
+}
+
+// TokenExchangeRequest follows RFC 8693 Section 2.1
+message TokenExchangeRequest {
+  // REQUIRED. The value "urn:ietf:params:oauth:grant-type:token-exchange"
+  // indicates that a token exchange is being performed.
+  string grant_type = 1;
+
+  // OPTIONAL. A URI that indicates the target service or resource where
+  // the client intends to use the requested security token.
+  string resource = 2;
+
+  // OPTIONAL. The logical name of the target service where the client
+  // intends to use the requested security token.
+  string audience = 3;
+
+  // OPTIONAL. A list of space-delimited, case-sensitive strings that
+  // indicate the desired scope of the requested security token.
+  string scope = 4;
+
+  // OPTIONAL. An identifier for the type of the requested security token.
+  // If not specified, the default is "urn:ietf:params:oauth:token-type:access_token".
+  string requested_token_type = 5;
+
+  // REQUIRED. The security token representing the identity of the party
+  // on behalf of whom the request is being made.
+  string subject_token = 6;
+
+  // REQUIRED. An identifier for the type of the requested security token.
+  string subject_token_type = 7;
+
+  // OPTIONAL. A security token that represents the identity of the acting
+  // party (typically used in delegation scenarios).
+  string actor_token = 8;
+
+  // OPTIONAL. An identifier for the type of the security token in the
+  // actor_token parameter.
+  string actor_token_type = 9;
+}
+
+// TokenExchangeResponse follows RFC 8693 Section 2.2
+message TokenExchangeResponse {
+  // REQUIRED. The security token issued by the authorization server in
+  // response to the token exchange request.
+  string access_token = 1;
+
+  // REQUIRED. An identifier for the representation of the issued security
+  // token.
+  string issued_token_type = 2;
+
+  // REQUIRED. A case-insensitive value specifying the method of using the
+  // access token issued. The value is "Bearer" for transaction tokens.
+  string token_type = 3;
+
+  // RECOMMENDED. The validity lifetime, in seconds, of the token issued.
+  int64 expires_in = 4;
+
+  // OPTIONAL. Scope of the issued security token.
+  string scope = 5;
+
+  // OPTIONAL. A refresh token (typically not issued for transaction tokens).
+  string refresh_token = 6;
+}
+
