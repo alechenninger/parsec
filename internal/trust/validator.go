@@ -26,32 +26,33 @@ type Validator interface {
 }
 
 // Result contains the validated information about the subject
+// All fields are exported and JSON-serializable
 type Result struct {
 	// Subject is the unique identifier of the authenticated subject
-	Subject string
+	Subject string `json:"subject"`
 
 	// Issuer is the issuer of the credential (e.g., IdP URL)
-	Issuer string
+	Issuer string `json:"issuer"`
 
 	// TrustDomain is the trust domain the credential belongs to.
 	// This namespaces the subject identifier and claims.
 	// An issuer is often 1:1 with a trust domain but not always.
-	TrustDomain string
+	TrustDomain string `json:"trust_domain"`
 
 	// Claims are additional claims from the credential
-	Claims claims.Claims
+	Claims claims.Claims `json:"claims,omitempty"`
 
 	// ExpiresAt is when the validated credential expires
-	ExpiresAt time.Time
+	ExpiresAt time.Time `json:"expires_at"`
 
 	// IssuedAt is when the credential was issued
-	IssuedAt time.Time
+	IssuedAt time.Time `json:"issued_at"`
 
 	// Audience is the intended audience of the credential
-	Audience []string
+	Audience []string `json:"audience,omitempty"`
 
 	// Scope is the OAuth2 scope if applicable
-	Scope string
+	Scope string `json:"scope,omitempty"`
 }
 
 // CredentialType indicates the type of credential

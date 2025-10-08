@@ -25,15 +25,20 @@ type DataSource interface {
 	Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error)
 }
 
-// DataSourceCacheKey is a key for caching data source results
-type DataSourceCacheKey string
-
 // Cacheable is an optional interface that data sources can implement
 // to enable caching of their results
 type Cacheable interface {
-	// CacheKey returns a key that can be used to cache the data source results.
-	// This is used to avoid re-fetching data if it hasn't changed.
-	CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey
+	// CacheKey returns a masked copy of the input with only the fields that affect the result.
+	// This serves two purposes:
+	// 1. It's the cache key (after serialization) - only relevant fields are included
+	// 2. It's the input used to fetch on cache miss - it contains all data needed for Fetch
+	//
+	// Fields that don't affect the result should be zeroed out to reduce cache key size.
+	// For example, if only Subject.Subject matters, return an input with just that field set.
+	//
+	// The returned input MUST be sufficient to call Fetch() if there's a cache miss.
+	// Returned by value for clear semantics - it's a derived value, not a shared reference.
+	CacheKey(input *DataSourceInput) DataSourceInput
 
 	// CacheTTL returns the time-to-live for cached entries.
 	// The actual TTL may vary. This is a hint.
@@ -62,36 +67,52 @@ type DataSourceResult struct {
 
 // RequestAttributes contains attributes about the incoming request
 // This is raw request data that will be processed by data sources and claim mappers
+// All fields are exported and JSON-serializable
 type RequestAttributes struct {
 	// Method is the HTTP method or RPC method name
-	Method string
+	Method string `json:"method,omitempty"`
 
 	// Path is the request path/resource being accessed
-	Path string
+	Path string `json:"path,omitempty"`
 
 	// IPAddress is the client IP address
-	IPAddress string
+	IPAddress string `json:"ip_address,omitempty"`
 
 	// UserAgent is the client user agent
-	UserAgent string
+	UserAgent string `json:"user_agent,omitempty"`
 
 	// Headers contains relevant HTTP headers
-	Headers map[string]string
+	Headers map[string]string `json:"headers,omitempty"`
 
 	// Additional arbitrary context
-	Additional map[string]any
+	Additional map[string]any `json:"additional,omitempty"`
 }
 
 // DataSourceInput contains the inputs available to a data source
+// All fields are exported and JSON-serializable for easy debugging and caching
+//
+// Example JSON serialization:
+//
+//	input := &DataSourceInput{
+//	    Subject: &trust.Result{
+//	        Subject: "user@example.com",
+//	        Issuer: "https://idp.example.com",
+//	    },
+//	}
+//	jsonBytes, _ := json.Marshal(input)
+//	// {"subject":{"subject":"user@example.com","issuer":"https://idp.example.com"}}
+//
+//	var decoded DataSourceInput
+//	json.Unmarshal(jsonBytes, &decoded)
 type DataSourceInput struct {
 	// Subject identity (attested claims from validated credential)
-	Subject *trust.Result
+	Subject *trust.Result `json:"subject,omitempty"`
 
 	// Workload identity (attested claims from workload credential)
-	Workload *trust.Result
+	Workload *trust.Result `json:"workload,omitempty"`
 
 	// RequestAttributes contains information about the request
-	RequestAttributes *RequestAttributes
+	RequestAttributes *RequestAttributes `json:"request_attributes,omitempty"`
 }
 
 // DataSourceRegistry is a simple registry that stores data sources by name
