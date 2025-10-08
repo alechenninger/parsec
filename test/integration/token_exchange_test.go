@@ -13,7 +13,6 @@ import (
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 // setupTestDependencies creates stub implementations for testing
@@ -21,12 +20,12 @@ func setupTestDependencies() (trust.Store, *issuer.TokenService) {
 	trustStore := trust.NewStubStore()
 	trustStore.AddDomain(&trust.Domain{
 		Name:          "default",
-		Issuer:        "default",
-		ValidatorType: validator.CredentialTypeBearer,
+		Issuer:        "bearer",
+		ValidatorType: trust.CredentialTypeBearer,
 	})
 
-	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
-	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
+	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
+	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
 
 	// Setup token service
 	dataSourceRegistry := issuer.NewDataSourceRegistry()

@@ -11,7 +11,6 @@ import (
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 func main() {
@@ -32,13 +31,13 @@ func run() error {
 	trustStore := trust.NewStubStore()
 	trustStore.AddDomain(&trust.Domain{
 		Name:          "default",
-		Issuer:        "default",
-		ValidatorType: validator.CredentialTypeBearer,
+		Issuer:        "bearer",
+		ValidatorType: trust.CredentialTypeBearer,
 	})
 
 	// Add a stub validator
-	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
-	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
+	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
+	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
 
 	// Create data source registry
 	dataSourceRegistry := issuer.NewDataSourceRegistry()

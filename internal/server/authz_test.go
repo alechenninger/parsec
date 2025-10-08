@@ -10,7 +10,6 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 func TestAuthzServer_Check(t *testing.T) {
@@ -20,12 +19,12 @@ func TestAuthzServer_Check(t *testing.T) {
 	trustStore := trust.NewStubStore()
 	trustStore.AddDomain(&trust.Domain{
 		Name:          "default",
-		Issuer:        "default",
-		ValidatorType: validator.CredentialTypeBearer,
+		Issuer:        "bearer",
+		ValidatorType: trust.CredentialTypeBearer,
 	})
 
-	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
-	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
+	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
+	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
 
 	// Setup token service
 	dataSourceRegistry := issuer.NewDataSourceRegistry()
@@ -143,7 +142,7 @@ func TestAuthzServer_Check(t *testing.T) {
 
 	t.Run("invalid bearer token", func(t *testing.T) {
 		// Configure validator to reject
-		stubValidator.WithError(validator.ErrInvalidToken)
+		stubValidator.WithError(trust.ErrInvalidToken)
 
 		req := &authv3.CheckRequest{
 			Attributes: &authv3.AttributeContext{

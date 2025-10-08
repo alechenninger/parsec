@@ -7,7 +7,6 @@ import (
 	parsecv1 "github.com/alechenninger/parsec/api/gen/parsec/v1"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 // ExchangeServer implements the TokenExchange gRPC service
@@ -38,19 +37,13 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 	// In production, we'd parse the token_type to determine the specific credential type
 	// For now, we'll treat all as bearer tokens
 	// TODO: Parse subject_token_type to determine specific credential type (JWT, OIDC, etc.)
-	// TODO: Parse token to extract actual issuer (for JWT/OIDC)
-	cred := &validator.BearerCredential{
-		Token:          req.SubjectToken,
-		IssuerIdentity: "default", // TODO: Extract from token
+	cred := &trust.BearerCredential{
+		Token: req.SubjectToken,
 	}
 
-	// Get validator based on credential type and issuer
-	val, err := s.trustStore.ValidatorFor(ctx, cred.Type(), cred.Issuer())
-	if err != nil {
-		return nil, fmt.Errorf("no validator available for issuer %s: %w", cred.Issuer(), err)
-	}
-
-	result, err := val.Validate(ctx, cred)
+	// Validate credential against trust store
+	// The trust store determines the appropriate validator based on credential type and issuer
+	result, err := s.trustStore.Validate(ctx, cred)
 	if err != nil {
 		return nil, fmt.Errorf("token validation failed: %w", err)
 	}

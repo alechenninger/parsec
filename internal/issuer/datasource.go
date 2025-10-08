@@ -3,7 +3,7 @@ package issuer
 import (
 	"context"
 
-	"github.com/alechenninger/parsec/internal/validator"
+	"github.com/alechenninger/parsec/internal/trust"
 )
 
 // DataSource provides additional data for token context building
@@ -30,10 +30,10 @@ type DataSourceCacheKey string
 // DataSourceInput contains the inputs available to a data source
 type DataSourceInput struct {
 	// Subject identity (attested claims from validated credential)
-	Subject *validator.Result
+	Subject *trust.Result
 
 	// Workload identity (attested claims from workload credential)
-	Workload *validator.Result
+	Workload *trust.Result
 
 	// RequestAttributes contains information about the request
 	RequestAttributes *RequestAttributes

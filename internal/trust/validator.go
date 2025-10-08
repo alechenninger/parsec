@@ -1,4 +1,4 @@
-package validator
+package trust
 
 import (
 	"context"
@@ -40,30 +40,17 @@ const (
 type Credential interface {
 	// Type returns the credential type
 	Type() CredentialType
-
-	// Issuer returns the issuer identifier for trust store lookup
-	// For JWT/OIDC: the "iss" claim
-	// For mTLS: the certificate authority identifier
-	// For API keys: the configured issuer/domain
-	//
-	// TODO: should this be verbatim from credential or some abstraction which we control?
-	Issuer() string
 }
 
 // BearerCredential represents a simple bearer token
-// For opaque bearer tokens, issuer should be determined from context
-// (e.g., configured for the endpoint, or parsed from token introspection)
+// For opaque bearer tokens, the trust store determines which validator to use
+// based on its configuration (e.g., default validator, token introspection, etc.)
 type BearerCredential struct {
-	Token          string
-	IssuerIdentity string // The issuer/domain this token belongs to
+	Token string
 }
 
 func (c *BearerCredential) Type() CredentialType {
 	return CredentialTypeBearer
-}
-
-func (c *BearerCredential) Issuer() string {
-	return c.IssuerIdentity
 }
 
 // JWTCredential represents a JWT token with parsed header and claims
@@ -78,10 +65,6 @@ func (c *JWTCredential) Type() CredentialType {
 	return CredentialTypeJWT
 }
 
-func (c *JWTCredential) Issuer() string {
-	return c.IssuerIdentity
-}
-
 // OIDCCredential represents an OIDC token with additional context
 type OIDCCredential struct {
 	Token          string
@@ -91,10 +74,6 @@ type OIDCCredential struct {
 
 func (c *OIDCCredential) Type() CredentialType {
 	return CredentialTypeOIDC
-}
-
-func (c *OIDCCredential) Issuer() string {
-	return c.IssuerIdentity
 }
 
 // MTLSCredential represents client certificate authentication
@@ -114,10 +93,6 @@ type MTLSCredential struct {
 
 func (c *MTLSCredential) Type() CredentialType {
 	return CredentialTypeMTLS
-}
-
-func (c *MTLSCredential) Issuer() string {
-	return c.IssuerIdentity
 }
 
 // Result contains the validated information about the subject

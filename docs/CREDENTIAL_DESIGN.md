@@ -13,26 +13,24 @@ Each credential type has its own struct with type-specific fields:
 ```go
 type Credential interface {
     Type() CredentialType
-    Issuer() string  // For trust store lookup
 }
 
 type BearerCredential struct {
-    Token          string
-    IssuerIdentity string  // Issuer/domain for this token
+    Token string  // The bearer token; issuer determined by validator store
 }
 
 type JWTCredential struct {
     Token          string
     Algorithm      string  // Parsed from JWT header
     KeyID          string  // Parsed from JWT header
-    IssuerIdentity string  // Parsed from JWT "iss" claim
+    IssuerIdentity string  // Parsed from JWT "iss" claim (used by trust store)
 }
 
 type MTLSCredential struct {
     Certificate         []byte
     Chain               [][]byte
     PeerCertificateHash string
-    IssuerIdentity      string  // CA identifier
+    IssuerIdentity      string  // CA identifier (used by trust store)
 }
 ```
 
@@ -41,11 +39,12 @@ type MTLSCredential struct {
 - Type-specific methods available (e.g., `JWTCredential` could have `GetClaims()`)
 - Clear documentation of what data each credential type needs
 - No `map[string]string` soup
-- Issuer identification enables multi-trust-domain support
+- IssuerIdentity field on JWT/OIDC/mTLS credentials enables multi-trust-domain support
+- Bearer tokens use a default issuer determined by the validator store
 
-### 2. Issuer Identification for Trust Store Lookup
+### 2. Issuer Identification for Validator Store
 
-Each credential identifies its issuer, enabling the trust store to select the appropriate validator:
+Most credentials contain issuer information that the validator store uses to select the appropriate validator. Bearer tokens are an exception - the store determines their issuer based on configuration:
 
 ```go
 // Extraction determines issuer
@@ -54,13 +53,13 @@ cred := &JWTCredential{
     IssuerIdentity: "https://accounts.google.com",  // Parsed from JWT
 }
 
-// Trust store uses issuer for lookup
-validator, err := trustStore.ValidatorFor(ctx, cred.Type(), cred.Issuer())
+// Validator store extracts issuer and validates
+result, err := store.Validate(ctx, cred)
 ```
 
 **How issuers are determined:**
-- **JWT/OIDC**: Parsed from the `iss` claim in the token
-- **Bearer (opaque)**: From configuration or token introspection
+- **JWT/OIDC**: Parsed from the `iss` claim in the token during extraction
+- **Bearer (opaque)**: Uses default "bearer" issuer; store configured with appropriate validator
 - **mTLS**: From the certificate authority identifier
 - **API Key**: From configuration mapping key→issuer
 
@@ -68,7 +67,7 @@ validator, err := trustStore.ValidatorFor(ctx, cred.Type(), cred.Issuer())
 - Supports multiple identity providers simultaneously
 - Each provider can have different trust anchors (JWKS, CA certs)
 - Enables fine-grained trust policies per issuer
-- Clear mapping: credential → issuer → validator → trust anchor
+- Validator store encapsulates issuer extraction and validator selection
 
 ### 3. Separation of Concerns
 
@@ -168,12 +167,10 @@ cred := &JWTCredential{
 }
 headersUsed := []string{"authorization"}
 
-// Trust store lookup using issuer
-validator, err := trustStore.ValidatorFor(ctx, cred.Type(), cred.Issuer())
+// Validator store validates - internally extracts issuer and selects validator
 // Gets validator configured for accounts.google.com with appropriate JWKS
-
-// Validation - can use Algorithm and KeyID to select specific key
-validator.Validate(ctx, cred)
+result, err := store.Validate(ctx, cred)
+// Validation can use Algorithm and KeyID to select specific key
 
 // Security: "authorization" header removed
 ```

@@ -4,30 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/alechenninger/parsec/internal/validator"
+	"github.com/alechenninger/parsec/internal/trust"
 )
-
-// RequestAttributes contains attributes about the incoming request
-// This is raw request data that will be processed by claim mappers
-type RequestAttributes struct {
-	// Method is the HTTP method or RPC method name
-	Method string
-
-	// Path is the request path/resource being accessed
-	Path string
-
-	// IPAddress is the client IP address
-	IPAddress string
-
-	// UserAgent is the client user agent
-	UserAgent string
-
-	// Headers contains relevant HTTP headers
-	Headers map[string]string
-
-	// Additional arbitrary context
-	Additional map[string]any
-}
 
 // TokenService orchestrates token issuance
 // This is the core business logic that brings together data sources,
@@ -63,11 +41,11 @@ func (ts *TokenService) TrustDomain() string {
 // IssueRequest contains the inputs for token issuance
 type IssueRequest struct {
 	// Subject identity (attested claims from validated credential)
-	Subject *validator.Result
+	Subject *trust.Result
 
 	// Workload identity (attested claims from workload credential, e.g., mTLS)
 	// May be nil if workload identity is not available
-	Workload *validator.Result
+	Workload *trust.Result
 
 	// RequestAttributes contains information about the request
 	RequestAttributes *RequestAttributes
@@ -77,6 +55,28 @@ type IssueRequest struct {
 
 	// Scope for the tokens
 	Scope string
+}
+
+// RequestAttributes contains attributes about the incoming request
+// This is raw request data that will be processed by claim mappers
+type RequestAttributes struct {
+	// Method is the HTTP method or RPC method name
+	Method string
+
+	// Path is the request path/resource being accessed
+	Path string
+
+	// IPAddress is the client IP address
+	IPAddress string
+
+	// UserAgent is the client user agent
+	UserAgent string
+
+	// Headers contains relevant HTTP headers
+	Headers map[string]string
+
+	// Additional arbitrary context
+	Additional map[string]any
 }
 
 // IssueTokens orchestrates the complete token issuance process

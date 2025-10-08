@@ -12,7 +12,6 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 // TokenTypeSpec specifies a token type to issue and how to deliver it
@@ -63,13 +62,8 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 	}
 
 	// 2. Validate credentials against trust store
-	// Use the issuer from the credential to look up the appropriate validator
-	val, err := s.trustStore.ValidatorFor(ctx, cred.Type(), cred.Issuer())
-	if err != nil {
-		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("no validator available for issuer %s: %v", cred.Issuer(), err)), nil
-	}
-
-	result, err := val.Validate(ctx, cred)
+	// The trust store determines the appropriate validator based on credential type and issuer
+	result, err := s.trustStore.Validate(ctx, cred)
 	if err != nil {
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("validation failed: %v", err)), nil
 	}
@@ -79,7 +73,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 
 	// 4. Extract workload identity (if available)
 	// TODO: Extract from mTLS cert, SPIFFE header, etc.
-	var workload *validator.Result = nil
+	var workload *trust.Result = nil
 
 	// 5. Issue tokens via TokenService
 	tokenTypes := make([]issuer.TokenType, len(s.TokenTypesToIssue))
@@ -131,7 +125,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 
 // extractCredential extracts credentials from the Envoy request
 // Returns the credential and the list of headers that were used to extract it
-func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (validator.Credential, []string, error) {
+func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (trust.Credential, []string, error) {
 	httpReq := req.GetAttributes().GetRequest().GetHttp()
 	// TODO: mtls e.g. cert := req.GetAttributes().GetSource().GetCertificate()
 
@@ -147,25 +141,10 @@ func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (validator.Cre
 
 	// Extract bearer token
 	if token, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
-
-		// For bearer tokens, we need to determine the issuer
-		// Options:
-		// 1. For JWT: Parse token and extract "iss" claim
-		// 2. For opaque tokens: Use default/configured issuer
-		// TODO: Parse JWT to get actual issuer
-		// For now, use "default" as a placeholder
-
-		// One way we could do this is perhaps have a bearer credential factory.
-		// This can then just return a token and figure out the issuer as part of the factory method.
-		// e.g. if the factory method detects a JWT, it can parse the token and extract the issuer.
-		// (rather than here which directly provided the state to a credential struct)
-		// This factory could then have state of its own, such as a default trust domain for bearer tokens,
-		// or some other way to understand issuer from a bearer token (e.g. PSK)
-		issuer := "default"
-
-		cred := &validator.BearerCredential{
-			Token:          token,
-			IssuerIdentity: issuer,
+		// For bearer tokens, the trust store determines which validator to use
+		// based on its configuration (e.g., default validator, token introspection)
+		cred := &trust.BearerCredential{
+			Token: token,
 		}
 		// Return the credential and the headers that were used
 		headersUsed := []string{"authorization"}

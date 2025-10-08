@@ -5,17 +5,17 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
-	"github.com/alechenninger/parsec/internal/validator"
+	"github.com/alechenninger/parsec/internal/trust"
 )
 
 // TokenContext contains all information needed to mint a token
 // This represents the processed, trusted data ready to be signed
 type TokenContext struct {
 	// Subject identity (attested claims from validated credential)
-	Subject *validator.Result
+	Subject *trust.Result
 
 	// Workload identity (attested claims from workload credential, e.g., mTLS)
-	Workload *validator.Result
+	Workload *trust.Result
 
 	// TransactionContext goes into the token as "tctx" claim
 	// This is the result of applying claim mappers and data sources

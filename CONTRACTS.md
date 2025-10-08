@@ -49,25 +49,23 @@ type Issuer interface {
 - `StubIssuer` - For testing, generates simple token strings
 - TODO: `JWTIssuer` - Real JWT implementation with signing
 
-### 3. TrustStore (`internal/trust/store.go`)
+### 3. Store (`internal/trust/store.go`)
 
 **Purpose**: Manages trust domains and provides validators for credentials.
 
 ```go
 type Store interface {
-    GetDomain(ctx context.Context, issuer string) (*Domain, error)
-    ListDomains(ctx context.Context) ([]*Domain, error)
-    ValidatorFor(ctx context.Context, credType validator.CredentialType, issuer string) (validator.Validator, error)
+    Validate(ctx context.Context, credential trust.Credential) (*trust.Result, error)
 }
 ```
 
 **Responsibilities**:
 - Store trust domain configurations
-- Map issuers to appropriate validators
+- Validate credentials by determining the appropriate validator based on credential type and issuer
 - Provide trust domain metadata (JWKS URIs, introspection endpoints, etc.)
 
 **Implementations**:
-- `StubStore` - In-memory store for testing
+- `StubStore` (in `trust` package) - In-memory store for testing
 - TODO: `StaticStore` - Loads from YAML configuration
 - TODO: `DynamicStore` - Reloadable configuration
 
@@ -80,13 +78,11 @@ type Store interface {
                 ↓
 2. ExchangeServer.Exchange()
                 ↓
-3. TrustStore.ValidatorFor() → Get appropriate validator
+3. Store.Validate() → Validate credential (determines issuer internally)
                 ↓
-4. Validator.Validate() → Validate external credential
+4. Issuer.Issue() → Generate transaction token
                 ↓
-5. Issuer.Issue() → Generate transaction token
-                ↓
-6. Return TokenExchangeResponse
+5. Return TokenExchangeResponse
 ```
 
 ### ext_authz Flow
@@ -98,13 +94,11 @@ type Store interface {
                 ↓
 3. extractCredential() → Parse Authorization header
                 ↓
-4. TrustStore.ValidatorFor() → Get appropriate validator
+4. Store.Validate() → Validate credential (determines issuer internally)
                 ↓
-5. Validator.Validate() → Validate credential
+5. Issuer.Issue() → Generate transaction token
                 ↓
-6. Issuer.Issue() → Generate transaction token
-                ↓
-7. Return CheckResponse with Transaction-Token header
+6. Return CheckResponse with Transaction-Token header
 ```
 
 ## Dependency Injection
@@ -154,7 +148,7 @@ Wire components together with stubs:
 
 ```go
 // Setup
-trustStore := trust.NewStubStore()
+trustStore := validator.NewStubStore()
 trustStore.AddValidator(...)
 
 // Test full flow
@@ -216,7 +210,7 @@ func (i *JWTIssuer) Issue(ctx context.Context, result *validator.Result, reqCtx 
 }
 ```
 
-### Static TrustStore
+### Static Store
 
 ```go
 type StaticStore struct {
