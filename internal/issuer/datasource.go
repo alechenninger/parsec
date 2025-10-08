@@ -2,12 +2,9 @@ package issuer
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"sync"
+	"time"
 
 	"github.com/alechenninger/parsec/internal/trust"
-	"github.com/golang/groupcache"
 )
 
 // DataSource provides additional data for token context building
@@ -21,6 +18,13 @@ type DataSource interface {
 	// CacheKey returns a key that can be used to cache the data source results.
 	// This is used to avoid re-fetching data if it hasn't changed.
 	CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey
+
+	// CacheTTL returns the time-to-live for cached entries.
+	// The actual TTL may vary. This is a hint.
+	// In general, values should last for at _most_ the TTL.
+	//
+	// Return 0 to disable TTL-based expiration (cache indefinitely).
+	CacheTTL() time.Duration
 
 	// Fetch retrieves data based on the input.
 	// Returns serialized data to avoid unnecessary serialization/deserialization.
@@ -51,6 +55,28 @@ type DataSourceResult struct {
 	ContentType DataSourceContentType
 }
 
+// RequestAttributes contains attributes about the incoming request
+// This is raw request data that will be processed by data sources and claim mappers
+type RequestAttributes struct {
+	// Method is the HTTP method or RPC method name
+	Method string
+
+	// Path is the request path/resource being accessed
+	Path string
+
+	// IPAddress is the client IP address
+	IPAddress string
+
+	// UserAgent is the client user agent
+	UserAgent string
+
+	// Headers contains relevant HTTP headers
+	Headers map[string]string
+
+	// Additional arbitrary context
+	Additional map[string]any
+}
+
 // DataSourceInput contains the inputs available to a data source
 type DataSourceInput struct {
 	// Subject identity (attested claims from validated credential)
@@ -63,188 +89,15 @@ type DataSourceInput struct {
 	RequestAttributes *RequestAttributes
 }
 
-// DataSourceRegistry manages data sources
-type DataSourceRegistry struct {
-	sources []DataSource
-	caches  map[string]*groupcache.Group
-	mu      sync.RWMutex
+// DataSourceRegistry manages data sources and provides data fetching capabilities
+// This interface decouples the token service from specific caching implementations
+type DataSourceRegistry interface {
+	// Register adds a data source to the registry
+	Register(source DataSource)
+
+	// FetchAll invokes all registered data sources and returns their results
+	// Returns a map of data source name to data
+	// If a data source returns an error, it is skipped (treated as optional)
+	FetchAll(ctx context.Context, input *DataSourceInput) map[string]map[string]any
 }
 
-// NewDataSourceRegistry creates a new data source registry
-func NewDataSourceRegistry() *DataSourceRegistry {
-	return &DataSourceRegistry{
-		sources: make([]DataSource, 0),
-		caches:  make(map[string]*groupcache.Group),
-	}
-}
-
-// Register adds a data source to the registry
-func (r *DataSourceRegistry) Register(source DataSource) {
-	r.sources = append(r.sources, source)
-	r.initCacheForSource(source)
-}
-
-// initCacheForSource creates a groupcache.Group for a data source
-func (r *DataSourceRegistry) initCacheForSource(source DataSource) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sourceName := source.Name()
-	if _, exists := r.caches[sourceName]; exists {
-		return
-	}
-
-	// Create a getter function that will fetch data on cache miss
-	getter := groupcache.GetterFunc(func(ctx context.Context, key string, dest groupcache.Sink) error {
-		// The key is the cache key, but we need the input to call Fetch
-		// We'll store the input in the context
-		input, ok := ctx.Value(dataSourceInputKey{}).(fetchInput)
-		if !ok {
-			return fmt.Errorf("missing data source input in context")
-		}
-
-		// Call the actual data source Fetch
-		result, err := source.Fetch(input.ctx, input.input)
-		if err != nil {
-			return fmt.Errorf("data source fetch failed: %w", err)
-		}
-
-		if result == nil {
-			return fmt.Errorf("data source returned nil result")
-		}
-
-		// Create cache entry with both data and content type
-		entry := cachedEntry{
-			Data:        result.Data,
-			ContentType: result.ContentType,
-		}
-
-		// Serialize the cache entry
-		entryBytes, err := json.Marshal(entry)
-		if err != nil {
-			return fmt.Errorf("failed to marshal cache entry: %w", err)
-		}
-
-		// Store in cache
-		return dest.SetBytes(entryBytes)
-	})
-
-	// Create the cache group with 64MB size (configurable)
-	r.caches[sourceName] = groupcache.NewGroup(
-		"datasource:"+sourceName,
-		64<<20, // 64 MB
-		getter,
-	)
-}
-
-// Context key type for storing input in context
-type dataSourceInputKey struct{}
-
-type fetchInput struct {
-	ctx   context.Context
-	input *DataSourceInput
-}
-
-// cachedEntry wraps the data and content type for storage in cache.
-// Storing the content type ensures we can properly deserialize cached entries
-// even if the data source changes its content type or supports multiple formats.
-type cachedEntry struct {
-	Data        []byte
-	ContentType DataSourceContentType
-}
-
-// FetchAll invokes all registered data sources and returns their results
-// Returns a map of data source name to data
-// If a data source returns an error, it is skipped (treated as optional)
-// Uses groupcache to cache results based on the cache key from each source
-func (r *DataSourceRegistry) FetchAll(ctx context.Context, input *DataSourceInput) map[string]map[string]any {
-	results := make(map[string]map[string]any)
-
-	for _, source := range r.sources {
-		sourceName := source.Name()
-
-		// Get the cache key from the source
-		cacheKey := source.CacheKey(ctx, input)
-
-		var resultData []byte
-		var contentType DataSourceContentType
-
-		if cacheKey == "" {
-			// No cache key means we skip caching for this fetch
-			result, err := source.Fetch(ctx, input)
-			if err != nil || result == nil {
-				// Treat data sources as optional
-				continue
-			}
-			resultData = result.Data
-			contentType = result.ContentType
-		} else {
-			// Get the cache for this source
-			r.mu.RLock()
-			cache, exists := r.caches[sourceName]
-			r.mu.RUnlock()
-
-			if !exists {
-				// No cache configured, fetch directly
-				result, err := source.Fetch(ctx, input)
-				if err != nil || result == nil {
-					continue
-				}
-				resultData = result.Data
-				contentType = result.ContentType
-			} else {
-				// Fetch from cache (or trigger fetch on miss)
-				// Store the input in context for the getter function
-				fetchCtx := context.WithValue(ctx, dataSourceInputKey{}, fetchInput{
-					ctx:   ctx,
-					input: input,
-				})
-
-				var cachedEntryBytes []byte
-				err := cache.Get(fetchCtx, string(cacheKey), groupcache.AllocatingByteSliceSink(&cachedEntryBytes))
-				if err != nil {
-					// Cache fetch failed, treat as optional
-					continue
-				}
-
-				// Deserialize the cache entry
-				var entry cachedEntry
-				if err := json.Unmarshal(cachedEntryBytes, &entry); err != nil {
-					// Failed to unmarshal cache entry, skip this source
-					continue
-				}
-
-				resultData = entry.Data
-				contentType = entry.ContentType
-			}
-		}
-
-		// Deserialize based on content type
-		data, err := r.deserialize(resultData, contentType)
-		if err != nil {
-			// Deserialization failed, skip this source
-			continue
-		}
-
-		if data != nil {
-			results[sourceName] = data
-		}
-	}
-
-	return results
-}
-
-// deserialize converts serialized data back to map[string]any based on content type
-// TODO: we could make deserialization based on content type externalized with its own types/interface/whatever
-func (r *DataSourceRegistry) deserialize(data []byte, contentType DataSourceContentType) (map[string]any, error) {
-	switch contentType {
-	case ContentTypeJSON:
-		var result map[string]any
-		if err := json.Unmarshal(data, &result); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal JSON: %w", err)
-		}
-		return result, nil
-	default:
-		return nil, fmt.Errorf("unsupported content type: %s", contentType)
-	}
-}

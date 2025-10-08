@@ -54,7 +54,7 @@ Implements Envoy's external authorization protocol:
 Implements RFC 8693 OAuth 2.0 Token Exchange:
 - gRPC service definition with HTTP annotations
 - Exposed at `POST /v1/token`
-- Accepts external tokens, returns transaction tokens
+- Accepts external tokens, returns tokens of the request type (e.g. transaction token)
 - Fully RFC 8693 compliant message structure
 
 **RFC 8693 Compliance:**

@@ -8,6 +8,7 @@ import (
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 
+	"github.com/alechenninger/parsec/internal/datasource"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/trust"
 )
@@ -22,7 +23,7 @@ func TestAuthzServer_Check(t *testing.T) {
 	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	dataSourceRegistry := datasource.NewRegistry()
 	claimMapperRegistry := issuer.NewClaimMapperRegistry()
 	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
 	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())

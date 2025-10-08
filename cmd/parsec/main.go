@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/datasource"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/trust"
@@ -36,7 +37,7 @@ func run() error {
 	trustStore.AddValidator(stubValidator)
 
 	// Create data source registry
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	dataSourceRegistry := datasource.NewRegistry()
 	// No data sources registered yet - can be added as needed
 
 	// Create claim mapper registry

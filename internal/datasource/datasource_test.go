@@ -1,11 +1,13 @@
-package issuer
+package datasource
 
 import (
 	"context"
 	"encoding/json"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -14,12 +16,22 @@ type CountingDataSource struct {
 	name       string
 	data       map[string]any
 	fetchCount atomic.Int32
+	cacheTTL   time.Duration
 }
 
 func NewCountingDataSource(name string, data map[string]any) *CountingDataSource {
 	return &CountingDataSource{
-		name: name,
-		data: data,
+		name:     name,
+		data:     data,
+		cacheTTL: 0, // No TTL by default
+	}
+}
+
+func NewCountingDataSourceWithTTL(name string, data map[string]any, ttl time.Duration) *CountingDataSource {
+	return &CountingDataSource{
+		name:     name,
+		data:     data,
+		cacheTTL: ttl,
 	}
 }
 
@@ -27,20 +39,24 @@ func (c *CountingDataSource) Name() string {
 	return c.name
 }
 
-func (c *CountingDataSource) CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey {
+func (c *CountingDataSource) CacheKey(ctx context.Context, input *issuer.DataSourceInput) issuer.DataSourceCacheKey {
 	// Generate cache key based on data content, specifically user_id
 	if userID, ok := c.data["user_id"].(string); ok {
-		return DataSourceCacheKey(c.name + ":" + userID)
+		return issuer.DataSourceCacheKey(c.name + ":" + userID)
 	}
 	// If no user_id, use the data map as a string representation
 	if len(c.data) > 0 {
-		return DataSourceCacheKey(c.name + ":data")
+		return issuer.DataSourceCacheKey(c.name + ":data")
 	}
 	// If no data at all, return empty to disable caching
 	return ""
 }
 
-func (c *CountingDataSource) Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error) {
+func (c *CountingDataSource) CacheTTL() time.Duration {
+	return c.cacheTTL
+}
+
+func (c *CountingDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
 	c.fetchCount.Add(1)
 
 	if c.data == nil {
@@ -53,9 +69,9 @@ func (c *CountingDataSource) Fetch(ctx context.Context, input *DataSourceInput) 
 		return nil, err
 	}
 
-	return &DataSourceResult{
+	return &issuer.DataSourceResult{
 		Data:        jsonData,
-		ContentType: ContentTypeJSON,
+		ContentType: issuer.ContentTypeJSON,
 	}, nil
 }
 
@@ -64,7 +80,7 @@ func (c *CountingDataSource) GetFetchCount() int32 {
 }
 
 func TestDataSourceRegistry_CachingWithSameKey(t *testing.T) {
-	registry := NewDataSourceRegistry()
+	registry := NewRegistry()
 
 	testData := map[string]any{
 		"user_id": "12345",
@@ -75,7 +91,7 @@ func TestDataSourceRegistry_CachingWithSameKey(t *testing.T) {
 	countingSource := NewCountingDataSource("test-source", testData)
 	registry.Register(countingSource)
 
-	input := &DataSourceInput{
+	input := &issuer.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user123",
 			Issuer:  "https://issuer.example.com",
@@ -125,7 +141,7 @@ func TestDataSourceRegistry_CachingWithSameKey(t *testing.T) {
 }
 
 func TestDataSourceRegistry_CachingWithDifferentKeys(t *testing.T) {
-	registry := NewDataSourceRegistry()
+	registry := NewRegistry()
 
 	testData := map[string]any{
 		"data": "test",
@@ -141,7 +157,7 @@ func TestDataSourceRegistry_CachingWithDifferentKeys(t *testing.T) {
 	ctx := context.Background()
 
 	// First fetch with one subject
-	input1 := &DataSourceInput{
+	input1 := &issuer.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user1",
 			Issuer:  "https://issuer.example.com",
@@ -156,7 +172,7 @@ func TestDataSourceRegistry_CachingWithDifferentKeys(t *testing.T) {
 	}
 
 	// Second fetch with different subject (different cache key)
-	input2 := &DataSourceInput{
+	input2 := &issuer.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user2",
 			Issuer:  "https://issuer.example.com",
@@ -179,7 +195,7 @@ func TestDataSourceRegistry_CachingWithDifferentKeys(t *testing.T) {
 }
 
 func TestDataSourceRegistry_NoCacheKey(t *testing.T) {
-	registry := NewDataSourceRegistry()
+	registry := NewRegistry()
 
 	// Empty data will result in empty cache key, disabling caching
 	testData := map[string]any{}
@@ -188,7 +204,7 @@ func TestDataSourceRegistry_NoCacheKey(t *testing.T) {
 	countingSource := NewCountingDataSource("no-cache-source", testData)
 	registry.Register(countingSource)
 
-	input := &DataSourceInput{
+	input := &issuer.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user123",
 			Issuer:  "https://issuer.example.com",
@@ -212,7 +228,7 @@ func TestDataSourceRegistry_NoCacheKey(t *testing.T) {
 }
 
 func TestDataSourceRegistry_MultipleDataSources(t *testing.T) {
-	registry := NewDataSourceRegistry()
+	registry := NewRegistry()
 
 	// Register multiple data sources - cache keys will be based on data content
 	source1 := NewCountingDataSource("source1", map[string]any{"data": "one"})
@@ -223,7 +239,7 @@ func TestDataSourceRegistry_MultipleDataSources(t *testing.T) {
 	registry.Register(source2)
 	registry.Register(source3)
 
-	input := &DataSourceInput{
+	input := &issuer.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user123",
 			Issuer:  "https://issuer.example.com",
@@ -274,21 +290,26 @@ type DynamicCacheKeyDataSource struct {
 	name       string
 	data       map[string]any
 	fetchCount atomic.Int32
+	cacheTTL   time.Duration
 }
 
 func (d *DynamicCacheKeyDataSource) Name() string {
 	return d.name
 }
 
-func (d *DynamicCacheKeyDataSource) CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey {
+func (d *DynamicCacheKeyDataSource) CacheKey(ctx context.Context, input *issuer.DataSourceInput) issuer.DataSourceCacheKey {
 	if input.Subject == nil || input.Subject.Claims["sub"] == nil {
 		return ""
 	}
 	// Return a cache key based on the subject
-	return DataSourceCacheKey("sub:" + input.Subject.Claims["sub"].(string))
+	return issuer.DataSourceCacheKey("sub:" + input.Subject.Claims["sub"].(string))
 }
 
-func (d *DynamicCacheKeyDataSource) Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error) {
+func (d *DynamicCacheKeyDataSource) CacheTTL() time.Duration {
+	return d.cacheTTL
+}
+
+func (d *DynamicCacheKeyDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
 	d.fetchCount.Add(1)
 
 	if d.data == nil {
@@ -301,9 +322,9 @@ func (d *DynamicCacheKeyDataSource) Fetch(ctx context.Context, input *DataSource
 		return nil, err
 	}
 
-	return &DataSourceResult{
+	return &issuer.DataSourceResult{
 		Data:        jsonData,
-		ContentType: ContentTypeJSON,
+		ContentType: issuer.ContentTypeJSON,
 	}, nil
 }
 

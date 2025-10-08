@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/datasource"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/trust"
@@ -23,7 +24,7 @@ func setupTestDependencies() (trust.Store, *issuer.TokenService) {
 	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	dataSourceRegistry := datasource.NewRegistry()
 	claimMapperRegistry := issuer.NewClaimMapperRegistry()
 	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
 	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())

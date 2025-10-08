@@ -49,6 +49,7 @@ The cache key should:
 type DataSource interface {
     Name() string
     CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey
+    CacheTTL() time.Duration // Return 0 to disable TTL
     Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error)
 }
 
@@ -58,11 +59,36 @@ type DataSourceResult struct {
 }
 ```
 
-### Example: Stub Data Source
+### Cache TTL (Time-To-Live)
+
+Data sources can specify a cache TTL via the `CacheTTL()` method. The TTL works by:
+
+1. Rounding the current time to the nearest TTL interval
+2. Incorporating that rounded time into the internal cache key
+3. When time advances past the interval, a new cache key is generated
+4. Old entries naturally age out via LRU eviction
+
+**Examples:**
+- TTL of 24 hours → Rounds to midnight of current day
+- TTL of 1 hour → Rounds to start of current hour
+- TTL of 5 minutes → Rounds to nearest 5-minute mark
+- TTL of 0 → No expiration (cache indefinitely)
+
+This approach:
+- ✅ Avoids explicit expiration checks
+- ✅ Works naturally with LRU cache
+- ✅ Transparent to the data source implementation
+- ✅ Efficient (no background cleanup needed)
+
+### Example: Stub Data Source (No TTL)
 
 ```go
 func (s *StubDataSource) CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey {
     return DataSourceCacheKey(s.name)
+}
+
+func (s *StubDataSource) CacheTTL() time.Duration {
+    return 0 // Cache indefinitely
 }
 
 func (s *StubDataSource) Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error) {
@@ -81,6 +107,49 @@ func (s *StubDataSource) Fetch(ctx context.Context, input *DataSourceInput) (*Da
         ContentType: ContentTypeJSON,
     }, nil
 }
+```
+
+### Example: Data Source with 1-Hour TTL
+
+```go
+type UserRolesDataSource struct {
+    db *sql.DB
+}
+
+func (u *UserRolesDataSource) CacheTTL() time.Duration {
+    return 1 * time.Hour // Cache for 1 hour
+}
+
+func (u *UserRolesDataSource) CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey {
+    if input.Subject == nil {
+        return ""
+    }
+    return DataSourceCacheKey("roles:" + input.Subject.Subject)
+}
+
+// Internal cache keys will look like:
+// "roles:user123:2025-10-08T14:00:00Z"  (hour 14)
+// "roles:user123:2025-10-08T15:00:00Z"  (hour 15) <- new fetch triggered
+```
+
+### Example: Daily Cache TTL
+
+```go
+type UserProfileDataSource struct {
+    api *http.Client
+}
+
+func (u *UserProfileDataSource) CacheTTL() time.Duration {
+    return 24 * time.Hour // Cache for 24 hours (expires at midnight)
+}
+
+func (u *UserProfileDataSource) CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey {
+    return DataSourceCacheKey("profile:" + input.Subject.Subject)
+}
+
+// Internal cache keys will look like:
+// "profile:user123:2025-10-08T00:00:00Z"  (Oct 8)
+// "profile:user123:2025-10-09T00:00:00Z"  (Oct 9) <- new fetch at midnight
 ```
 
 ### Example: Remote API Data Source (Zero-Copy)
@@ -148,7 +217,17 @@ func (u *UserDataSource) Fetch(ctx context.Context, input *DataSourceInput) (*Da
 - **Serialization**: Pre-serialized by data source; stored with content type in cache
 - **Content Type Storage**: Content type is stored alongside data in cache for proper deserialization
 - **Deserialization**: Happens once in `FetchAll` based on cached content type
+- **TTL**: Time-to-live via time-interval-based cache keys (transparent to data source)
 - **Concurrency**: Thread-safe with automatic request deduplication
+
+### TTL Behavior
+
+When a data source specifies a TTL:
+1. Current time is rounded to nearest TTL interval
+2. Rounded time is appended to the cache key
+3. Example: User key `"user:12345"` with 1-hour TTL becomes `"user:12345:2025-10-08T14:00:00Z"`
+4. After 1 hour, key becomes `"user:12345:2025-10-08T15:00:00Z"` (cache miss, re-fetch)
+5. Old entry `"user:12345:2025-10-08T14:00:00Z"` eventually evicted by LRU
 
 ## Benefits
 
@@ -167,13 +246,26 @@ See `datasource_test.go` for comprehensive tests covering:
 - Multiple data sources
 - Concurrent requests (deduplication)
 
+## Distributed Caching
+
+For multi-node deployments, see [DATASOURCE_CLUSTER.md](DATASOURCE_CLUSTER.md) for information on:
+- Configuring groupcache for distributed caching across multiple parsec nodes
+- Kubernetes StatefulSet deployment examples
+- Docker Compose multi-node setup
+- Dynamic cluster membership and scaling
+- Security and monitoring
+
+Using distributed caching provides:
+- **Increased Capacity**: 3 nodes = 3x total cache capacity
+- **Cluster-Wide Deduplication**: Only one fetch per key across all nodes
+- **Hot Key Replication**: Popular keys automatically replicate to prevent hot spots
+
 ## Future Enhancements
 
 Potential improvements:
 - Configurable cache size per data source
-- Optional TTL/expiration support
 - Additional content types (protobuf, msgpack, etc.)
-- Metrics and monitoring (cache hit rate, etc.)
-- Distributed caching across multiple instances (groupcache supports this)
+- Metrics and monitoring (cache hit rate, TTL expiry tracking, etc.)
 - More efficient cache entry encoding (e.g., binary format instead of JSON wrapper)
+- Jitter for TTL to prevent thundering herd at interval boundaries
 

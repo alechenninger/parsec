@@ -12,7 +12,7 @@ import (
 // claim mappers, and issuers to produce tokens
 type TokenService struct {
 	trustDomain    string
-	dataSources    *DataSourceRegistry
+	dataSources    DataSourceRegistry
 	claimMappers   *ClaimMapperRegistry
 	issuerRegistry Registry
 }
@@ -20,7 +20,7 @@ type TokenService struct {
 // NewTokenService creates a new token service
 func NewTokenService(
 	trustDomain string,
-	dataSources *DataSourceRegistry,
+	dataSources DataSourceRegistry,
 	claimMappers *ClaimMapperRegistry,
 	issuerRegistry Registry,
 ) *TokenService {
@@ -55,28 +55,6 @@ type IssueRequest struct {
 
 	// Scope for the tokens
 	Scope string
-}
-
-// RequestAttributes contains attributes about the incoming request
-// This is raw request data that will be processed by claim mappers
-type RequestAttributes struct {
-	// Method is the HTTP method or RPC method name
-	Method string
-
-	// Path is the request path/resource being accessed
-	Path string
-
-	// IPAddress is the client IP address
-	IPAddress string
-
-	// UserAgent is the client user agent
-	UserAgent string
-
-	// Headers contains relevant HTTP headers
-	Headers map[string]string
-
-	// Additional arbitrary context
-	Additional map[string]any
 }
 
 // IssueTokens orchestrates the complete token issuance process
