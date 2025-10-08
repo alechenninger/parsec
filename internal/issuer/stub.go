@@ -44,7 +44,9 @@ func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token,
 	}, nil
 }
 
-// JWKSURI implements the Issuer interface
-func (i *StubIssuer) JWKSURI() string {
-	return fmt.Sprintf("%s/.well-known/jwks.json", i.issuerURL)
+// PublicKeys implements the Issuer interface
+// Stub issuer returns an empty slice since it doesn't sign tokens
+func (i *StubIssuer) PublicKeys(ctx context.Context) ([]PublicKey, error) {
+	// Return empty slice for unsigned stub tokens
+	return []PublicKey{}, nil
 }

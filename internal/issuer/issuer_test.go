@@ -82,15 +82,22 @@ func TestStubIssuer(t *testing.T) {
 		}
 	})
 
-	t.Run("returns JWKS URI", func(t *testing.T) {
+	t.Run("returns empty public keys for unsigned tokens", func(t *testing.T) {
 		issuerURL := "https://parsec.example.com"
 		issuer := NewStubIssuer(issuerURL, 5*time.Minute)
 
-		jwksURI := issuer.JWKSURI()
-		expectedURI := issuerURL + "/.well-known/jwks.json"
+		keys, err := issuer.PublicKeys(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-		if jwksURI != expectedURI {
-			t.Errorf("expected JWKS URI %s, got %s", expectedURI, jwksURI)
+		if keys == nil {
+			t.Fatal("expected keys slice, got nil")
+		}
+
+		// Stub issuer should return empty slice (unsigned tokens)
+		if len(keys) != 0 {
+			t.Errorf("expected empty keys slice, got %d keys", len(keys))
 		}
 	})
 

@@ -17,14 +17,9 @@ func TestAuthzServer_Check(t *testing.T) {
 
 	// Setup dependencies
 	trustStore := trust.NewStubStore()
-	trustStore.AddDomain(&trust.Domain{
-		Name:          "default",
-		Issuer:        "bearer",
-		ValidatorType: trust.CredentialTypeBearer,
-	})
 
 	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
-	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
+	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
 	dataSourceRegistry := issuer.NewDataSourceRegistry()

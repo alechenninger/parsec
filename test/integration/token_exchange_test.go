@@ -18,14 +18,9 @@ import (
 // setupTestDependencies creates stub implementations for testing
 func setupTestDependencies() (trust.Store, *issuer.TokenService) {
 	trustStore := trust.NewStubStore()
-	trustStore.AddDomain(&trust.Domain{
-		Name:          "default",
-		Issuer:        "bearer",
-		ValidatorType: trust.CredentialTypeBearer,
-	})
 
 	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
-	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
+	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
 	dataSourceRegistry := issuer.NewDataSourceRegistry()

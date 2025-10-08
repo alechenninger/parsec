@@ -27,17 +27,13 @@ func run() error {
 	// Initialize components with stub implementations
 	// TODO: Replace with real implementations
 
-	// Create trust store with default trust domain
+	// Create trust store and add validators
+	// Validators know their issuer and trust domain
 	trustStore := trust.NewStubStore()
-	trustStore.AddDomain(&trust.Domain{
-		Name:          "default",
-		Issuer:        "bearer",
-		ValidatorType: trust.CredentialTypeBearer,
-	})
 
-	// Add a stub validator
+	// Add a stub validator for bearer tokens
 	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
-	trustStore.AddValidator(trust.CredentialTypeBearer, "bearer", stubValidator)
+	trustStore.AddValidator(stubValidator)
 
 	// Create data source registry
 	dataSourceRegistry := issuer.NewDataSourceRegistry()

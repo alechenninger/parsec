@@ -20,8 +20,38 @@ type Validator interface {
 	// Returns an error if the credential is invalid or validation fails
 	Validate(ctx context.Context, credential Credential) (*Result, error)
 
-	// Type returns the type of credentials this validator handles
-	Type() CredentialType
+	// CredentialTypes returns the set of credential types this validator can handle
+	// A validator may support multiple types (e.g., JWT validator can handle Bearer or JWT)
+	CredentialTypes() []CredentialType
+}
+
+// Result contains the validated information about the subject
+type Result struct {
+	// Subject is the unique identifier of the authenticated subject
+	Subject string
+
+	// Issuer is the issuer of the credential (e.g., IdP URL)
+	Issuer string
+
+	// TrustDomain is the trust domain the credential belongs to.
+	// This namespaces the subject identifier and claims.
+	// An issuer is often 1:1 with a trust domain but not always.
+	TrustDomain string
+
+	// Claims are additional claims from the credential
+	Claims claims.Claims
+
+	// ExpiresAt is when the validated credential expires
+	ExpiresAt time.Time
+
+	// IssuedAt is when the credential was issued
+	IssuedAt time.Time
+
+	// Audience is the intended audience of the credential
+	Audience []string
+
+	// Scope is the OAuth2 scope if applicable
+	Scope string
 }
 
 // CredentialType indicates the type of credential
@@ -93,31 +123,4 @@ type MTLSCredential struct {
 
 func (c *MTLSCredential) Type() CredentialType {
 	return CredentialTypeMTLS
-}
-
-// Result contains the validated information about the subject
-type Result struct {
-	// Subject is the unique identifier of the authenticated subject
-	Subject string
-
-	// Issuer is the issuer of the credential (e.g., IdP URL)
-	Issuer string
-
-	// TrustDomain is the trust domain the credential belongs to
-	TrustDomain string
-
-	// Claims are additional claims from the credential
-	Claims claims.Claims
-
-	// ExpiresAt is when the validated credential expires
-	ExpiresAt time.Time
-
-	// IssuedAt is when the credential was issued
-	IssuedAt time.Time
-
-	// Audience is the intended audience of the credential
-	Audience []string
-
-	// Scope is the OAuth2 scope if applicable
-	Scope string
 }

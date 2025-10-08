@@ -2,6 +2,7 @@ package issuer
 
 import (
 	"context"
+	"crypto"
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
@@ -34,6 +35,22 @@ type TokenContext struct {
 	Scope string
 }
 
+// PublicKey represents a public key for token verification
+type PublicKey struct {
+	// KeyID is the unique identifier for this key (kid)
+	KeyID string
+
+	// Algorithm is the signing algorithm (e.g., "RS256", "ES256", "EdDSA")
+	Algorithm string
+
+	// Key is the actual public key material
+	// Typically: *rsa.PublicKey, *ecdsa.PublicKey, ed25519.PublicKey
+	Key crypto.PublicKey
+
+	// Use indicates the intended use of the key (e.g., "sig" for signature)
+	Use string
+}
+
 // Issuer creates signed tokens from prepared token context
 // The issuer is responsible for cryptographic operations and token formatting
 type Issuer interface {
@@ -41,8 +58,10 @@ type Issuer interface {
 	// The token context contains all trusted, processed claims ready to be minted
 	Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error)
 
-	// JWKSURI returns the URI where the public keys for verifying tokens can be found
-	JWKSURI() string
+	// PublicKeys returns the set of public keys for verifying tokens issued by this issuer
+	// Returns an empty slice for unsigned tokens (e.g., stub implementations)
+	// The keys may come from various sources: in-memory, JWKS URI, KMS, etc.
+	PublicKeys(ctx context.Context) ([]PublicKey, error)
 }
 
 // Token represents an issued transaction token

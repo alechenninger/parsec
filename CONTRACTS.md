@@ -32,18 +32,26 @@ type Validator interface {
 **Purpose**: Issues transaction tokens based on validated credentials.
 
 ```go
+type PublicKey struct {
+    KeyID     string           // Unique key identifier (kid)
+    Algorithm string           // Signing algorithm (RS256, ES256, etc.)
+    Key       crypto.PublicKey // Actual key material
+    Use       string           // Key use (e.g., "sig")
+}
+
 type Issuer interface {
-    Issue(ctx context.Context, result *validator.Result, reqCtx *RequestContext) (*Token, error)
-    JWKSURI() string
+    Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error)
+    PublicKeys(ctx context.Context) ([]PublicKey, error)
 }
 ```
 
 **Responsibilities**:
-- Accept validation result and request context
+- Accept token context with validated credentials and request information
 - Generate transaction token (JWT) with appropriate claims
-- Sign token with private key
+- Sign token with private key (if applicable)
 - Return `Token` with value, type, expiry
-- Provide JWKS URI for token verification
+- Provide public keys for token verification (may be empty for unsigned tokens)
+- Public keys are library-agnostic (use standard `crypto.PublicKey` interface)
 
 **Implementations**:
 - `StubIssuer` - For testing, generates simple token strings
@@ -199,14 +207,21 @@ func (v *OIDCValidator) Validate(ctx context.Context, cred *Credential) (*Result
 type JWTIssuer struct {
     keyManager keymanager.Manager  // Spire KeyManager
     issuer     string
-    audience   string
+    publicKeys []PublicKey          // Cached public keys
 }
 
-func (i *JWTIssuer) Issue(ctx context.Context, result *validator.Result, reqCtx *RequestContext) (*Token, error) {
+func (i *JWTIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error) {
     // Get signing key from KeyManager
-    // Build TokenClaims (txn, azd, purp, req_ctx)
+    // Build TokenClaims (txn, tctx, req_ctx, etc.)
     // Sign JWT
     // Return Token
+}
+
+func (i *JWTIssuer) PublicKeys(ctx context.Context) ([]PublicKey, error) {
+    // Return cached public keys from KeyManager
+    // Keys may come from: in-memory, JWKS URI, KMS, etc.
+    // Encapsulates key source from consumers
+    // PublicKey is library-agnostic (uses crypto.PublicKey)
 }
 ```
 

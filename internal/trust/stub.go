@@ -3,6 +3,7 @@ package trust
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
@@ -10,101 +11,70 @@ import (
 
 // StubStore is a simple in-memory trust store for testing
 type StubStore struct {
-	domains    map[string]*Domain
-	validators map[string]Validator
-}
-
-// Domain represents a trust domain configuration
-type Domain struct {
-	// Name is a human-readable name for the domain
-	Name string
-
-	// Issuer is the issuer identifier (e.g., IdP URL)
-	Issuer string
-
-	// ValidatorType indicates which validator to use
-	ValidatorType CredentialType
+	// Index validators by credential type for fast lookup
+	validatorsByType map[CredentialType][]Validator
 }
 
 // NewStubStore creates a new stub trust store
 func NewStubStore() *StubStore {
 	return &StubStore{
-		domains:    make(map[string]*Domain),
-		validators: make(map[string]Validator),
+		validatorsByType: make(map[CredentialType][]Validator),
 	}
 }
 
-// AddDomain adds a trust domain to the store
-func (s *StubStore) AddDomain(domain *Domain) *StubStore {
-	s.domains[domain.Issuer] = domain
-	return s
-}
-
-// AddValidator adds a validator for a specific credential type and issuer
-func (s *StubStore) AddValidator(credType CredentialType, issuer string, v Validator) *StubStore {
-	key := fmt.Sprintf("%s:%s", credType, issuer)
-	s.validators[key] = v
+// AddValidator adds a validator to the store
+// The validator is indexed by all credential types it supports
+func (s *StubStore) AddValidator(v Validator) *StubStore {
+	for _, credType := range v.CredentialTypes() {
+		s.validatorsByType[credType] = append(s.validatorsByType[credType], v)
+	}
 	return s
 }
 
 // Validate implements the Store interface
+// Tries validators in order until one succeeds
 func (s *StubStore) Validate(ctx context.Context, credential Credential) (*Result, error) {
-	// Extract issuer from credential
-	issuer, err := extractIssuer(credential)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract issuer from credential: %w", err)
+	credType := credential.Type()
+
+	// Look up validators for this credential type
+	validators, ok := s.validatorsByType[credType]
+	if !ok || len(validators) == 0 {
+		return nil, fmt.Errorf("no validator found for credential type %s", credType)
 	}
 
-	// Look up validator
-	key := fmt.Sprintf("%s:%s", credential.Type(), issuer)
-	v, ok := s.validators[key]
-	if !ok {
-		return nil, fmt.Errorf("no validator found for type %s and issuer %s", credential.Type(), issuer)
+	// Try validators in order until one succeeds
+	var errors []error
+	for _, v := range validators {
+		result, err := v.Validate(ctx, credential)
+		if err == nil {
+			return result, nil
+		}
+
+		// Collect errors
+		errors = append(errors, err)
 	}
 
-	// Validate the credential
-	return v.Validate(ctx, credential)
-}
-
-// extractIssuer extracts the issuer identifier from a credential
-func extractIssuer(cred Credential) (string, error) {
-	switch c := cred.(type) {
-	case *BearerCredential:
-		// For bearer tokens, use a default issuer since we can't determine it from the token
-		// The trust store should have a default bearer validator configured
-		return "bearer", nil
-	case *JWTCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("JWT credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	case *OIDCCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("OIDC credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	case *MTLSCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("mTLS credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	default:
-		return "", fmt.Errorf("unknown credential type: %T", cred)
-	}
+	// All validators failed
+	return nil, fmt.Errorf("all validators failed for credential type %s: %w", credType, errors[len(errors)-1])
 }
 
 // StubValidator is a simple stub validator for testing
 // It accepts any token and returns a fixed result
 type StubValidator struct {
-	credType CredentialType
-	result   *Result
-	err      error
+	credTypes []CredentialType
+	result    *Result
+	err       error
 }
 
 // NewStubValidator creates a new stub validator
-func NewStubValidator(credType CredentialType) *StubValidator {
+// It can accept multiple credential types
+func NewStubValidator(credTypes ...CredentialType) *StubValidator {
+	if len(credTypes) == 0 {
+		credTypes = []CredentialType{CredentialTypeBearer}
+	}
+
 	return &StubValidator{
-		credType: credType,
+		credTypes: credTypes,
 		result: &Result{
 			Subject:     "test-subject",
 			Issuer:      "https://test-issuer.example.com",
@@ -153,9 +123,10 @@ func (v *StubValidator) Validate(ctx context.Context, credential Credential) (*R
 			return nil, fmt.Errorf("empty token")
 		}
 	default:
-		// For other credential types, just validate the type matches
-		if credential.Type() != v.credType {
-			return nil, fmt.Errorf("credential type mismatch: expected %s, got %s", v.credType, credential.Type())
+		// For other credential types, just validate the type is supported
+		supported := slices.Contains(v.credTypes, credential.Type())
+		if !supported {
+			return nil, fmt.Errorf("credential type %s not supported", credential.Type())
 		}
 	}
 
@@ -163,7 +134,7 @@ func (v *StubValidator) Validate(ctx context.Context, credential Credential) (*R
 	return v.result, nil
 }
 
-// Type implements the Validator interface
-func (v *StubValidator) Type() CredentialType {
-	return v.credType
+// CredentialTypes implements the Validator interface
+func (v *StubValidator) CredentialTypes() []CredentialType {
+	return v.credTypes
 }

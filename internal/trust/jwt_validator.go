@@ -78,9 +78,10 @@ func NewJWTValidator(cfg JWTValidatorConfig) (*JWTValidator, error) {
 	}, nil
 }
 
-// Type returns the credential type this validator handles
-func (v *JWTValidator) Type() CredentialType {
-	return CredentialTypeJWT
+// CredentialTypes returns the credential types this validator can handle
+// JWT validator can handle both JWT and Bearer credentials (since Bearer tokens might be JWTs)
+func (v *JWTValidator) CredentialTypes() []CredentialType {
+	return []CredentialType{CredentialTypeJWT, CredentialTypeBearer}
 }
 
 // Validate validates a JWT credential
