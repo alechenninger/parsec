@@ -8,6 +8,12 @@ import (
 	"github.com/alechenninger/parsec/internal/claims"
 )
 
+// StubStore is a simple in-memory trust store for testing
+type StubStore struct {
+	domains    map[string]*Domain
+	validators map[string]Validator
+}
+
 // Domain represents a trust domain configuration
 type Domain struct {
 	// Name is a human-readable name for the domain
@@ -18,6 +24,73 @@ type Domain struct {
 
 	// ValidatorType indicates which validator to use
 	ValidatorType CredentialType
+}
+
+// NewStubStore creates a new stub trust store
+func NewStubStore() *StubStore {
+	return &StubStore{
+		domains:    make(map[string]*Domain),
+		validators: make(map[string]Validator),
+	}
+}
+
+// AddDomain adds a trust domain to the store
+func (s *StubStore) AddDomain(domain *Domain) *StubStore {
+	s.domains[domain.Issuer] = domain
+	return s
+}
+
+// AddValidator adds a validator for a specific credential type and issuer
+func (s *StubStore) AddValidator(credType CredentialType, issuer string, v Validator) *StubStore {
+	key := fmt.Sprintf("%s:%s", credType, issuer)
+	s.validators[key] = v
+	return s
+}
+
+// Validate implements the Store interface
+func (s *StubStore) Validate(ctx context.Context, credential Credential) (*Result, error) {
+	// Extract issuer from credential
+	issuer, err := extractIssuer(credential)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract issuer from credential: %w", err)
+	}
+
+	// Look up validator
+	key := fmt.Sprintf("%s:%s", credential.Type(), issuer)
+	v, ok := s.validators[key]
+	if !ok {
+		return nil, fmt.Errorf("no validator found for type %s and issuer %s", credential.Type(), issuer)
+	}
+
+	// Validate the credential
+	return v.Validate(ctx, credential)
+}
+
+// extractIssuer extracts the issuer identifier from a credential
+func extractIssuer(cred Credential) (string, error) {
+	switch c := cred.(type) {
+	case *BearerCredential:
+		// For bearer tokens, use a default issuer since we can't determine it from the token
+		// The trust store should have a default bearer validator configured
+		return "bearer", nil
+	case *JWTCredential:
+		if c.IssuerIdentity == "" {
+			return "", fmt.Errorf("JWT credential missing issuer identity")
+		}
+		return c.IssuerIdentity, nil
+	case *OIDCCredential:
+		if c.IssuerIdentity == "" {
+			return "", fmt.Errorf("OIDC credential missing issuer identity")
+		}
+		return c.IssuerIdentity, nil
+	case *MTLSCredential:
+		if c.IssuerIdentity == "" {
+			return "", fmt.Errorf("mTLS credential missing issuer identity")
+		}
+		return c.IssuerIdentity, nil
+	default:
+		return "", fmt.Errorf("unknown credential type: %T", cred)
+	}
 }
 
 // StubValidator is a simple stub validator for testing
@@ -93,77 +166,4 @@ func (v *StubValidator) Validate(ctx context.Context, credential Credential) (*R
 // Type implements the Validator interface
 func (v *StubValidator) Type() CredentialType {
 	return v.credType
-}
-
-// StubStore is a simple in-memory trust store for testing
-type StubStore struct {
-	domains    map[string]*Domain
-	validators map[string]Validator
-}
-
-// NewStubStore creates a new stub trust store
-func NewStubStore() *StubStore {
-	return &StubStore{
-		domains:    make(map[string]*Domain),
-		validators: make(map[string]Validator),
-	}
-}
-
-// AddDomain adds a trust domain to the store
-func (s *StubStore) AddDomain(domain *Domain) *StubStore {
-	s.domains[domain.Issuer] = domain
-	return s
-}
-
-// AddValidator adds a validator for a specific credential type and issuer
-func (s *StubStore) AddValidator(credType CredentialType, issuer string, v Validator) *StubStore {
-	key := fmt.Sprintf("%s:%s", credType, issuer)
-	s.validators[key] = v
-	return s
-}
-
-// Validate implements the Store interface
-func (s *StubStore) Validate(ctx context.Context, credential Credential) (*Result, error) {
-	// Extract issuer from credential
-	issuer, err := extractIssuer(credential)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract issuer from credential: %w", err)
-	}
-
-	// Look up validator
-	key := fmt.Sprintf("%s:%s", credential.Type(), issuer)
-	v, ok := s.validators[key]
-	if !ok {
-		return nil, fmt.Errorf("no validator found for type %s and issuer %s", credential.Type(), issuer)
-	}
-
-	// Validate the credential
-	return v.Validate(ctx, credential)
-}
-
-// extractIssuer extracts the issuer identifier from a credential
-func extractIssuer(cred Credential) (string, error) {
-	switch c := cred.(type) {
-	case *BearerCredential:
-		// For bearer tokens, use a default issuer since we can't determine it from the token
-		// The trust store should have a default bearer validator configured
-		return "bearer", nil
-	case *JWTCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("JWT credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	case *OIDCCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("OIDC credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	case *MTLSCredential:
-		if c.IssuerIdentity == "" {
-			return "", fmt.Errorf("mTLS credential missing issuer identity")
-		}
-		return c.IssuerIdentity, nil
-	default:
-		return "", fmt.Errorf("unknown credential type: %T", cred)
-	}
 }

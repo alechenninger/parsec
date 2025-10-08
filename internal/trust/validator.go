@@ -55,7 +55,7 @@ func (c *BearerCredential) Type() CredentialType {
 
 // JWTCredential represents a JWT token with parsed header and claims
 type JWTCredential struct {
-	Token          string
+	BearerCredential
 	Algorithm      string
 	KeyID          string
 	IssuerIdentity string // Parsed from JWT "iss" claim

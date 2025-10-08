@@ -92,10 +92,10 @@ func TestStubValidator(t *testing.T) {
 			validator := NewStubValidator(CredentialTypeJWT)
 
 			cred := &JWTCredential{
-				Token:          "eyJhbGc...",
-				Algorithm:      "RS256",
-				KeyID:          "key-1",
-				IssuerIdentity: "https://issuer.example.com",
+				BearerCredential: BearerCredential{Token: "eyJhbGc..."},
+				Algorithm:        "RS256",
+				KeyID:            "key-1",
+				IssuerIdentity:   "https://issuer.example.com",
 			}
 
 			result, err := validator.Validate(ctx, cred)
@@ -162,7 +162,7 @@ func TestStubValidator(t *testing.T) {
 			},
 			{
 				"JWT",
-				&JWTCredential{Token: "test", IssuerIdentity: "https://jwt.example.com"},
+				&JWTCredential{BearerCredential: BearerCredential{Token: "test"}, IssuerIdentity: "https://jwt.example.com"},
 				CredentialTypeJWT,
 				"https://jwt.example.com",
 			},
