@@ -17,7 +17,7 @@ import (
 )
 
 // setupTestDependencies creates stub implementations for testing
-func setupTestDependencies() (trust.Store, issuer.Registry) {
+func setupTestDependencies() (trust.Store, *issuer.TokenService) {
 	trustStore := trust.NewStubStore()
 	trustStore.AddDomain(&trust.Domain{
 		Name:          "default",
@@ -28,11 +28,20 @@ func setupTestDependencies() (trust.Store, issuer.Registry) {
 	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
 	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
 
+	// Setup token service
+	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	claimMapperRegistry := issuer.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+
 	issuerRegistry := issuer.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
 	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
 
-	return trustStore, issuerRegistry
+	trustDomain := "parsec.test"
+	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+
+	return trustStore, tokenService
 }
 
 // TestTokenExchangeFormEncoded tests that the token exchange endpoint
@@ -42,14 +51,14 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	trustStore, tokenIssuer := setupTestDependencies()
+	trustStore, tokenService := setupTestDependencies()
 
 	// Start server
 	srv := server.New(server.Config{
 		GRPCPort:       19090,
 		HTTPPort:       18080,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenIssuer),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenIssuer),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService),
 	})
 
 	if err := srv.Start(ctx); err != nil {
@@ -65,7 +74,7 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	formData.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
 	formData.Set("subject_token", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test")
 	formData.Set("subject_token_type", "urn:ietf:params:oauth:token-type:jwt")
-	formData.Set("audience", "https://api.example.com")
+	formData.Set("audience", "parsec.test") // Must match trust domain
 
 	// Make request
 	req, err := http.NewRequest(
@@ -119,14 +128,14 @@ func TestTokenExchangeJSON(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	trustStore, tokenIssuer := setupTestDependencies()
+	trustStore, tokenService := setupTestDependencies()
 
 	// Start server
 	srv := server.New(server.Config{
 		GRPCPort:       19091,
 		HTTPPort:       18081,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenIssuer),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenIssuer),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService),
 	})
 
 	if err := srv.Start(ctx); err != nil {
@@ -142,7 +151,7 @@ func TestTokenExchangeJSON(t *testing.T) {
 		"grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
 		"subject_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test",
 		"subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
-		"audience": "https://api.example.com"
+		"audience": "parsec.test"
 	}`
 
 	// Make request

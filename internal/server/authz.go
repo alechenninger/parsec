@@ -25,18 +25,12 @@ type TokenTypeSpec struct {
 	HeaderName string
 }
 
-// IssuedTokens contains the issued tokens
-type IssuedTokens struct {
-	// Tokens maps token types to their issued tokens
-	Tokens map[issuer.TokenType]*issuer.Token
-}
-
 // AuthzServer implements Envoy's ext_authz Authorization service
 type AuthzServer struct {
 	authv3.UnimplementedAuthorizationServer
 
-	trustStore     trust.Store
-	issuerRegistry issuer.Registry
+	trustStore   trust.Store
+	tokenService *issuer.TokenService
 
 	// TokenTypesToIssue specifies which token types to issue and their headers
 	// This could come from configuration in the future
@@ -44,12 +38,12 @@ type AuthzServer struct {
 }
 
 // NewAuthzServer creates a new ext_authz server
-func NewAuthzServer(trustStore trust.Store, issuerRegistry issuer.Registry) *AuthzServer {
+func NewAuthzServer(trustStore trust.Store, tokenService *issuer.TokenService) *AuthzServer {
 	// Default: Issue transaction tokens
 	// In the future, this could be configured per-route, per-domain, etc.
 	return &AuthzServer{
-		trustStore:     trustStore,
-		issuerRegistry: issuerRegistry,
+		trustStore:   trustStore,
+		tokenService: tokenService,
 		TokenTypesToIssue: []TokenTypeSpec{
 			{
 				Type:       issuer.TokenTypeTransactionToken,
@@ -80,17 +74,35 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("validation failed: %v", err)), nil
 	}
 
-	// 3. Issue tokens based on configuration
-	reqCtx := s.buildRequestContext(req)
-	issuedTokens, err := s.issueTokens(ctx, result, reqCtx)
+	// 3. Build request attributes
+	reqAttrs := s.buildRequestAttributes(req)
+
+	// 4. Extract workload identity (if available)
+	// TODO: Extract from mTLS cert, SPIFFE header, etc.
+	var workload *validator.Result = nil
+
+	// 5. Issue tokens via TokenService
+	tokenTypes := make([]issuer.TokenType, len(s.TokenTypesToIssue))
+	for i, spec := range s.TokenTypesToIssue {
+		tokenTypes[i] = spec.Type
+	}
+
+	issuedTokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
+		Subject:           result,
+		Workload:          workload,
+		RequestAttributes: reqAttrs,
+		TokenTypes:        tokenTypes,
+		// TODO: Get scope from configuration or request
+		Scope: "",
+	})
 	if err != nil {
 		return s.denyResponse(codes.Internal, fmt.Sprintf("failed to issue tokens: %v", err)), nil
 	}
 
-	// 4. Build response headers from issued tokens
-	responseHeaders := make([]*corev3.HeaderValueOption, 0, len(issuedTokens.Tokens))
+	// 6. Build response headers from issued tokens
+	responseHeaders := make([]*corev3.HeaderValueOption, 0, len(issuedTokens))
 	for _, spec := range s.TokenTypesToIssue {
-		if token, ok := issuedTokens.Tokens[spec.Type]; ok {
+		if token, ok := issuedTokens[spec.Type]; ok {
 			responseHeaders = append(responseHeaders, &corev3.HeaderValueOption{
 				Header: &corev3.HeaderValue{
 					Key:   spec.HeaderName,
@@ -100,7 +112,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		}
 	}
 
-	// 5. Return OK with issued tokens in headers
+	// 7. Return OK with issued tokens in headers
 	// Remove the external credential headers so they don't leak to backend
 	// This creates a security boundary - external credentials stay outside
 	return &authv3.CheckResponse{
@@ -115,29 +127,6 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 			},
 		},
 	}, nil
-}
-
-// issueTokens issues all configured token types
-func (s *AuthzServer) issueTokens(ctx context.Context, result *validator.Result, reqCtx *issuer.RequestContext) (*IssuedTokens, error) {
-	tokens := make(map[issuer.TokenType]*issuer.Token)
-
-	for _, spec := range s.TokenTypesToIssue {
-		// Get the issuer for this token type
-		iss, err := s.issuerRegistry.GetIssuer(spec.Type)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get issuer for %s: %w", spec.Type, err)
-		}
-
-		// Issue the token
-		token, err := iss.Issue(ctx, result, reqCtx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to issue %s: %w", spec.Type, err)
-		}
-
-		tokens[spec.Type] = token
-	}
-
-	return &IssuedTokens{Tokens: tokens}, nil
 }
 
 // extractCredential extracts credentials from the Envoy request
@@ -191,17 +180,19 @@ func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (validator.Cre
 	return nil, nil, fmt.Errorf("unsupported authorization scheme")
 }
 
-// buildRequestContext creates request context from Envoy request
-func (s *AuthzServer) buildRequestContext(req *authv3.CheckRequest) *issuer.RequestContext {
+// buildRequestAttributes extracts request attributes from the Envoy request
+func (s *AuthzServer) buildRequestAttributes(req *authv3.CheckRequest) *issuer.RequestAttributes {
 	httpReq := req.GetAttributes().GetRequest().GetHttp()
 	if httpReq == nil {
-		return &issuer.RequestContext{}
+		return &issuer.RequestAttributes{}
 	}
 
-	return &issuer.RequestContext{
+	return &issuer.RequestAttributes{
 		Method:    httpReq.GetMethod(),
 		Path:      httpReq.GetPath(),
 		IPAddress: req.GetAttributes().GetSource().GetAddress().GetSocketAddress().GetAddress(),
+		UserAgent: httpReq.GetHeaders()["user-agent"],
+		Headers:   httpReq.GetHeaders(),
 		Additional: map[string]any{
 			"host": httpReq.GetHost(),
 		},

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/alechenninger/parsec/internal/claims"
 )
 
 // Common validation errors
@@ -130,7 +132,7 @@ type Result struct {
 	TrustDomain string
 
 	// Claims are additional claims from the credential
-	Claims map[string]any
+	Claims claims.Claims
 
 	// ExpiresAt is when the validated credential expires
 	ExpiresAt time.Time

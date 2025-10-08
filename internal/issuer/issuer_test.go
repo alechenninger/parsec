@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/validator"
 )
 
@@ -15,18 +16,21 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("issues token successfully", func(t *testing.T) {
 		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 
-		validationResult := &validator.Result{
-			Subject:     "user@example.com",
-			Issuer:      "https://idp.example.com",
-			TrustDomain: "example-domain",
+		tokenCtx := &TokenContext{
+			Subject: &validator.Result{
+				Subject:     "user@example.com",
+				Issuer:      "https://idp.example.com",
+				TrustDomain: "example-domain",
+			},
+			TransactionContext: claims.Claims{},
+			RequestContext: claims.Claims{
+				"method": "GET",
+				"path":   "/api/resource",
+			},
+			Audience: "test-audience",
 		}
 
-		reqCtx := &RequestContext{
-			Method: "GET",
-			Path:   "/api/resource",
-		}
-
-		token, err := issuer.Issue(ctx, validationResult, reqCtx)
+		token, err := issuer.Issue(ctx, tokenCtx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -47,7 +51,7 @@ func TestStubIssuer(t *testing.T) {
 			t.Error("expected non-empty transaction ID")
 		}
 
-		if strings.Contains(token.Value, validationResult.Subject) == false {
+		if strings.Contains(token.Value, tokenCtx.Subject.Subject) == false {
 			t.Error("expected token to contain subject")
 		}
 	})
@@ -56,11 +60,15 @@ func TestStubIssuer(t *testing.T) {
 		ttl := 10 * time.Minute
 		issuer := NewStubIssuer("https://parsec.example.com", ttl)
 
-		validationResult := &validator.Result{
-			Subject: "test-user",
+		tokenCtx := &TokenContext{
+			Subject: &validator.Result{
+				Subject: "test-user",
+			},
+			TransactionContext: claims.Claims{},
+			RequestContext:     claims.Claims{},
 		}
 
-		token, err := issuer.Issue(ctx, validationResult, &RequestContext{})
+		token, err := issuer.Issue(ctx, tokenCtx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -89,13 +97,17 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("generates unique transaction IDs", func(t *testing.T) {
 		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 
-		validationResult := &validator.Result{
-			Subject: "test-user",
+		tokenCtx := &TokenContext{
+			Subject: &validator.Result{
+				Subject: "test-user",
+			},
+			TransactionContext: claims.Claims{},
+			RequestContext:     claims.Claims{},
 		}
 
-		token1, _ := issuer.Issue(ctx, validationResult, &RequestContext{})
+		token1, _ := issuer.Issue(ctx, tokenCtx)
 		time.Sleep(10 * time.Millisecond) // Ensure different timestamp
-		token2, _ := issuer.Issue(ctx, validationResult, &RequestContext{})
+		token2, _ := issuer.Issue(ctx, tokenCtx)
 
 		if token1.TransactionID == token2.TransactionID {
 			t.Error("expected unique transaction IDs")

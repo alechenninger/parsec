@@ -40,19 +40,33 @@ func run() error {
 	stubValidator := validator.NewStubValidator(validator.CredentialTypeBearer)
 	trustStore.AddValidator(validator.CredentialTypeBearer, "default", stubValidator)
 
+	// Create data source registry
+	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	// No data sources registered yet - can be added as needed
+
+	// Create claim mapper registry
+	claimMapperRegistry := issuer.NewClaimMapperRegistry()
+	// Register a simple passthrough mapper for transaction context
+	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
+	// Register request attributes mapper for request context
+	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+
 	// Create issuer registry
 	issuerRegistry := issuer.NewSimpleRegistry()
-
 	// Register issuers for different token types
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
-
 	// TODO: Register other token types as needed
 	// issuerRegistry.Register(issuer.TokenTypeAccessToken, accessTokenIssuer)
 
+	// Create token service
+	// Trust domain is used as the audience for all issued tokens
+	trustDomain := "parsec.example.com"
+	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+
 	// Create service handlers
-	authzServer := server.NewAuthzServer(trustStore, issuerRegistry)
-	exchangeServer := server.NewExchangeServer(trustStore, issuerRegistry)
+	authzServer := server.NewAuthzServer(trustStore, tokenService)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenService)
 
 	// Create server configuration
 	cfg := server.Config{

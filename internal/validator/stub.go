@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/alechenninger/parsec/internal/claims"
 )
 
 // StubValidator is a simple stub validator for testing
@@ -22,7 +24,7 @@ func NewStubValidator(credType CredentialType) *StubValidator {
 			Subject:     "test-subject",
 			Issuer:      "https://test-issuer.example.com",
 			TrustDomain: "test-domain",
-			Claims: map[string]any{
+			Claims: claims.Claims{
 				"email": "test@example.com",
 			},
 			ExpiresAt: time.Now().Add(time.Hour),

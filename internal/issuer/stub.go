@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/alechenninger/parsec/internal/validator"
 )
 
 // StubIssuer is a simple stub issuer for testing
@@ -24,16 +22,18 @@ func NewStubIssuer(issuerURL string, ttl time.Duration) *StubIssuer {
 }
 
 // Issue implements the Issuer interface
-func (i *StubIssuer) Issue(ctx context.Context, result *validator.Result, reqCtx *RequestContext) (*Token, error) {
+func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error) {
 	now := time.Now()
 	expiresAt := now.Add(i.ttl)
 
 	// Generate a simple token ID with microsecond precision for uniqueness
-	// In real implementation, this would be UUIDv7
 	txnID := fmt.Sprintf("txn-%d", now.UnixNano()/1000)
 
 	// For stub, just create a simple token string
-	tokenValue := fmt.Sprintf("stub-txn-token.%s.%s", result.Subject, txnID)
+	// Include subject from the token context
+	subject := tokenCtx.Subject.Subject
+
+	tokenValue := fmt.Sprintf("stub-txn-token.%s.%s", subject, txnID)
 
 	return &Token{
 		Value:         tokenValue,

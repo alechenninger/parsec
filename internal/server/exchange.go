@@ -14,15 +14,15 @@ import (
 type ExchangeServer struct {
 	parsecv1.UnimplementedTokenExchangeServer
 
-	trustStore     trust.Store
-	issuerRegistry issuer.Registry
+	trustStore   trust.Store
+	tokenService *issuer.TokenService
 }
 
 // NewExchangeServer creates a new token exchange server
-func NewExchangeServer(trustStore trust.Store, issuerRegistry issuer.Registry) *ExchangeServer {
+func NewExchangeServer(trustStore trust.Store, tokenService *issuer.TokenService) *ExchangeServer {
 	return &ExchangeServer{
-		trustStore:     trustStore,
-		issuerRegistry: issuerRegistry,
+		trustStore:   trustStore,
+		tokenService: tokenService,
 	}
 }
 
@@ -63,14 +63,8 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		requestedTokenType = issuer.TokenType(req.RequestedTokenType)
 	}
 
-	// Get the issuer for the requested token type
-	iss, err := s.issuerRegistry.GetIssuer(requestedTokenType)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported requested_token_type %s: %w", requestedTokenType, err)
-	}
-
-	// 4. Issue the token
-	reqCtx := &issuer.RequestContext{
+	// 4. Build request attributes
+	reqAttrs := &issuer.RequestAttributes{
 		Method: "TokenExchange",
 		Path:   "/v1/token",
 		Additional: map[string]any{
@@ -79,12 +73,32 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		},
 	}
 
-	token, err := iss.Issue(ctx, result, reqCtx)
+	// 5. Validate audience matches trust domain (per transaction token spec)
+	// The audience for transaction tokens is always the trust domain
+	if req.Audience != "" && req.Audience != s.tokenService.TrustDomain() {
+		return nil, fmt.Errorf("requested audience %q does not match trust domain %q",
+			req.Audience, s.tokenService.TrustDomain())
+	}
+
+	// 6. Issue the token via TokenService
+	// No workload identity in token exchange (it's an external call)
+	tokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
+		Subject:           result,
+		Workload:          nil,
+		RequestAttributes: reqAttrs,
+		TokenTypes:        []issuer.TokenType{requestedTokenType},
+		Scope:             req.Scope,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to issue token: %w", err)
 	}
 
-	// 5. Return response
+	token, ok := tokens[requestedTokenType]
+	if !ok {
+		return nil, fmt.Errorf("token service did not return requested token type %s", requestedTokenType)
+	}
+
+	// 7. Return response
 	return &parsecv1.TokenExchangeResponse{
 		AccessToken:     token.Value,
 		IssuedTokenType: string(requestedTokenType),
