@@ -26,9 +26,12 @@ type MapperInput struct {
 	// RequestAttributes contains information about the request
 	RequestAttributes *RequestAttributes
 
-	// DataSources contains data fetched from registered data sources
-	// Map key is the data source name
-	DataSources map[string]map[string]any
+	// DataSourceRegistry provides access to data sources for lazy fetching
+	// Mappers can fetch only the data sources they need
+	DataSourceRegistry *DataSourceRegistry
+
+	// DataSourceInput is the input to use when fetching from data sources
+	DataSourceInput *DataSourceInput
 }
 
 // ClaimMapperRegistry manages claim mappers for different claim types

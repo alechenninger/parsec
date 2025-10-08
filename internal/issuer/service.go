@@ -12,7 +12,7 @@ import (
 // claim mappers, and issuers to produce tokens
 type TokenService struct {
 	trustDomain    string
-	dataSources    DataSourceRegistry
+	dataSources    *DataSourceRegistry
 	claimMappers   *ClaimMapperRegistry
 	issuerRegistry Registry
 }
@@ -20,7 +20,7 @@ type TokenService struct {
 // NewTokenService creates a new token service
 func NewTokenService(
 	trustDomain string,
-	dataSources DataSourceRegistry,
+	dataSources *DataSourceRegistry,
 	claimMappers *ClaimMapperRegistry,
 	issuerRegistry Registry,
 ) *TokenService {
@@ -60,23 +60,24 @@ type IssueRequest struct {
 // IssueTokens orchestrates the complete token issuance process
 // Returns a map of token type to issued token
 func (ts *TokenService) IssueTokens(ctx context.Context, req *IssueRequest) (map[TokenType]*Token, error) {
-	// 1. Fetch data from all data sources
+	// 1. Build data source input
 	dataSourceInput := &DataSourceInput{
 		Subject:           req.Subject,
 		Workload:          req.Workload,
 		RequestAttributes: req.RequestAttributes,
 	}
-	dataSourceResults := ts.dataSources.FetchAll(ctx, dataSourceInput)
 
-	// 2. Build mapper input
+	// 2. Build mapper input with data source registry for lazy fetching
 	mapperInput := &MapperInput{
-		Subject:           req.Subject,
-		Workload:          req.Workload,
-		RequestAttributes: req.RequestAttributes,
-		DataSources:       dataSourceResults,
+		Subject:            req.Subject,
+		Workload:           req.Workload,
+		RequestAttributes:  req.RequestAttributes,
+		DataSourceRegistry: ts.dataSources,
+		DataSourceInput:    dataSourceInput,
 	}
 
 	// 3. Apply claim mappers to build transaction context
+	// Mappers will fetch data sources lazily as needed
 	transactionContext, err := ts.claimMappers.MapTransactionContext(ctx, mapperInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to map transaction context: %w", err)

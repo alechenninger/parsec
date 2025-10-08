@@ -12,19 +12,8 @@ import (
 // to enrich the token context.
 type DataSource interface {
 	// Name identifies this data source.
-	// The name is used as a key in the data map passed to claim mappers.
+	// The name is used as a key for lookups in the registry.
 	Name() string
-
-	// CacheKey returns a key that can be used to cache the data source results.
-	// This is used to avoid re-fetching data if it hasn't changed.
-	CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey
-
-	// CacheTTL returns the time-to-live for cached entries.
-	// The actual TTL may vary. This is a hint.
-	// In general, values should last for at _most_ the TTL.
-	//
-	// Return 0 to disable TTL-based expiration (cache indefinitely).
-	CacheTTL() time.Duration
 
 	// Fetch retrieves data based on the input.
 	// Returns serialized data to avoid unnecessary serialization/deserialization.
@@ -36,7 +25,23 @@ type DataSource interface {
 	Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error)
 }
 
+// DataSourceCacheKey is a key for caching data source results
 type DataSourceCacheKey string
+
+// Cacheable is an optional interface that data sources can implement
+// to enable caching of their results
+type Cacheable interface {
+	// CacheKey returns a key that can be used to cache the data source results.
+	// This is used to avoid re-fetching data if it hasn't changed.
+	CacheKey(ctx context.Context, input *DataSourceInput) DataSourceCacheKey
+
+	// CacheTTL returns the time-to-live for cached entries.
+	// The actual TTL may vary. This is a hint.
+	// In general, values should last for at _most_ the TTL.
+	//
+	// Return 0 to disable TTL-based expiration (cache indefinitely).
+	CacheTTL() time.Duration
+}
 
 // DataSourceContentType identifies the serialization format of data source results
 type DataSourceContentType string
@@ -89,15 +94,34 @@ type DataSourceInput struct {
 	RequestAttributes *RequestAttributes
 }
 
-// DataSourceRegistry manages data sources and provides data fetching capabilities
-// This interface decouples the token service from specific caching implementations
-type DataSourceRegistry interface {
-	// Register adds a data source to the registry
-	Register(source DataSource)
-
-	// FetchAll invokes all registered data sources and returns their results
-	// Returns a map of data source name to data
-	// If a data source returns an error, it is skipped (treated as optional)
-	FetchAll(ctx context.Context, input *DataSourceInput) map[string]map[string]any
+// DataSourceRegistry is a simple registry that stores data sources by name
+type DataSourceRegistry struct {
+	sources map[string]DataSource
 }
 
+// NewDataSourceRegistry creates a new data source registry
+func NewDataSourceRegistry() *DataSourceRegistry {
+	return &DataSourceRegistry{
+		sources: make(map[string]DataSource),
+	}
+}
+
+// Register adds a data source to the registry
+func (r *DataSourceRegistry) Register(source DataSource) {
+	r.sources[source.Name()] = source
+}
+
+// Get retrieves a data source by name
+// Returns nil if the data source is not found
+func (r *DataSourceRegistry) Get(name string) DataSource {
+	return r.sources[name]
+}
+
+// Names returns the names of all registered data sources
+func (r *DataSourceRegistry) Names() []string {
+	names := make([]string, 0, len(r.sources))
+	for name := range r.sources {
+		names = append(names, name)
+	}
+	return names
+}
