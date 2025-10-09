@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 
 	parsecv1 "github.com/alechenninger/parsec/api/gen/parsec/v1"
+	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
@@ -14,15 +17,17 @@ import (
 type ExchangeServer struct {
 	parsecv1.UnimplementedTokenExchangeServer
 
-	trustStore   trust.Store
-	tokenService *issuer.TokenService
+	trustStore           trust.Store
+	tokenService         *issuer.TokenService
+	claimsFilterRegistry ClaimsFilterRegistry
 }
 
 // NewExchangeServer creates a new token exchange server
-func NewExchangeServer(trustStore trust.Store, tokenService *issuer.TokenService) *ExchangeServer {
+func NewExchangeServer(trustStore trust.Store, tokenService *issuer.TokenService, claimsFilterRegistry ClaimsFilterRegistry) *ExchangeServer {
 	return &ExchangeServer{
-		trustStore:   trustStore,
-		tokenService: tokenService,
+		trustStore:           trustStore,
+		tokenService:         tokenService,
+		claimsFilterRegistry: claimsFilterRegistry,
 	}
 }
 
@@ -33,26 +38,61 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		return nil, fmt.Errorf("unsupported grant_type: %s", req.GrantType)
 	}
 
-	// 2. Build request attributes
-	reqAttrs := &request.RequestAttributes{
-		Method: "TokenExchange",
-		Path:   "/v1/token",
-		Additional: map[string]any{
-			"requested_audience": req.Audience,
-			"requested_scope":    req.Scope,
-		},
+	// 2. Extract actor credential from gRPC context
+	actorCred, err := extractActorCredential(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract actor credential: %w", err)
 	}
 
-	// 3. Extract actor credential from gRPC context
-	actorCred, err := extractActorCredential(ctx)
 	var actor *trust.Result
 	if actorCred != nil {
-		actor, err = s.trustStore.Validate(ctx, actorCred)
-		if err != nil {
-			return nil, fmt.Errorf("actor validation failed: %w", err)
+		var validationErr error
+		actor, validationErr = s.trustStore.Validate(ctx, actorCred)
+		if validationErr != nil {
+			return nil, fmt.Errorf("actor validation failed: %w", validationErr)
 		}
 	} else {
 		actor = trust.AnonymousResult()
+	}
+
+	// 3. Parse and filter client-provided request_context claims
+	var reqAttrs *request.RequestAttributes
+	if req.RequestContext != "" {
+		// Decode base64-encoded request_context (per transaction token spec)
+		decodedJSON, err := base64.StdEncoding.DecodeString(req.RequestContext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode request_context base64: %w", err)
+		}
+
+		// Parse request_context JSON
+		var requestContextClaims claims.Claims
+		if err := json.Unmarshal(decodedJSON, &requestContextClaims); err != nil {
+			return nil, fmt.Errorf("failed to parse request_context JSON: %w", err)
+		}
+
+		// Get the claims filter for this actor
+		claimsFilter, err := s.claimsFilterRegistry.GetFilter(actor)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get claims filter for actor: %w", err)
+		}
+
+		// Filter the claims based on actor permissions
+		filteredClaims := claimsFilter.Filter(requestContextClaims)
+
+		// Convert filtered claims to RequestAttributes
+		reqAttrs = request.FromClaims(filteredClaims)
+	} else {
+		// No request_context provided, use empty attributes
+		reqAttrs = request.FromClaims(nil)
+	}
+
+	// Add metadata from the token exchange request itself to Additional
+	// These are not client-provided claims but server-side request metadata
+	if req.Audience != "" {
+		reqAttrs.Additional["requested_audience"] = req.Audience
+	}
+	if req.Scope != "" {
+		reqAttrs.Additional["requested_scope"] = req.Scope
 	}
 
 	// 4. Filter trust store based on actor permissions

@@ -67,5 +67,10 @@ func (r *RequestAttributesMapper) Map(ctx context.Context, input *MapperInput) (
 		result["user_agent"] = input.RequestAttributes.UserAgent
 	}
 
+	// Include all items from Additional map
+	for key, value := range input.RequestAttributes.Additional {
+		result[key] = value
+	}
+
 	return result, nil
 }

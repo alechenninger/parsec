@@ -2,6 +2,7 @@ package issuer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -9,16 +10,32 @@ import (
 // StubIssuer is a simple stub issuer for testing
 // It generates simple token strings without actual JWT signing
 type StubIssuer struct {
-	issuerURL string
-	ttl       time.Duration
+	issuerURL             string
+	ttl                   time.Duration
+	includeRequestContext bool
+}
+
+// StubIssuerOption is a functional option for configuring a StubIssuer
+type StubIssuerOption func(*StubIssuer)
+
+// WithIncludeRequestContext configures the stub issuer to include request context in the token
+// This is useful for testing that request attributes are properly filtered
+func WithIncludeRequestContext(include bool) StubIssuerOption {
+	return func(s *StubIssuer) {
+		s.includeRequestContext = include
+	}
 }
 
 // NewStubIssuer creates a new stub issuer
-func NewStubIssuer(issuerURL string, ttl time.Duration) *StubIssuer {
-	return &StubIssuer{
+func NewStubIssuer(issuerURL string, ttl time.Duration, opts ...StubIssuerOption) *StubIssuer {
+	s := &StubIssuer{
 		issuerURL: issuerURL,
 		ttl:       ttl,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Issue implements the Issuer interface
@@ -33,7 +50,19 @@ func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token,
 	// Include subject from the token context
 	subject := tokenCtx.Subject.Subject
 
-	tokenValue := fmt.Sprintf("stub-txn-token.%s.%s", subject, txnID)
+	var tokenValue string
+	if i.includeRequestContext {
+		// Encode the request context as JSON so tests can verify filtering
+		requestContextJSON, err := json.Marshal(tokenCtx.RequestContext)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request context: %w", err)
+		}
+		// Format: stub-txn-token.{subject}.{txnID}.{requestContextJSON}
+		tokenValue = fmt.Sprintf("stub-txn-token.%s.%s.%s", subject, txnID, string(requestContextJSON))
+	} else {
+		// Simple format without request context
+		tokenValue = fmt.Sprintf("stub-txn-token.%s.%s", subject, txnID)
+	}
 
 	return &Token{
 		Value:         tokenValue,

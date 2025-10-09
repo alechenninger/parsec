@@ -56,7 +56,7 @@ func TestJSONValidator_Validate(t *testing.T) {
 		{
 			name: "valid credential with allow list filter",
 			validator: NewJSONValidator(
-				WithClaimsFilter(NewAllowListClaimsFilter([]string{"email", "role"})),
+				WithClaimsFilter(claims.NewAllowListClaimsFilter([]string{"email", "role"})),
 			),
 			credential: func() Credential {
 				data, _ := json.Marshal(baseResult)
@@ -81,7 +81,7 @@ func TestJSONValidator_Validate(t *testing.T) {
 		{
 			name: "valid credential with deny list filter",
 			validator: NewJSONValidator(
-				WithClaimsFilter(NewDenyListClaimsFilter([]string{"internal"})),
+				WithClaimsFilter(claims.NewDenyListClaimsFilter([]string{"internal"})),
 			),
 			credential: func() Credential {
 				data, _ := json.Marshal(baseResult)
@@ -234,7 +234,7 @@ func TestClaimsFilters(t *testing.T) {
 	}
 
 	t.Run("PassthroughClaimsFilter", func(t *testing.T) {
-		filter := &PassthroughClaimsFilter{}
+		filter := &claims.PassthroughClaimsFilter{}
 		result := filter.Filter(testClaims)
 
 		if len(result) != len(testClaims) {
@@ -249,7 +249,7 @@ func TestClaimsFilters(t *testing.T) {
 	})
 
 	t.Run("AllowListClaimsFilter", func(t *testing.T) {
-		filter := NewAllowListClaimsFilter([]string{"email", "role"})
+		filter := claims.NewAllowListClaimsFilter([]string{"email", "role"})
 		result := filter.Filter(testClaims)
 
 		if len(result) != 2 {
@@ -266,7 +266,7 @@ func TestClaimsFilters(t *testing.T) {
 	})
 
 	t.Run("DenyListClaimsFilter", func(t *testing.T) {
-		filter := NewDenyListClaimsFilter([]string{"internal"})
+		filter := claims.NewDenyListClaimsFilter([]string{"internal"})
 		result := filter.Filter(testClaims)
 
 		if len(result) != 3 {
@@ -283,7 +283,7 @@ func TestClaimsFilters(t *testing.T) {
 	})
 
 	t.Run("AllowListClaimsFilter with nil claims", func(t *testing.T) {
-		filter := NewAllowListClaimsFilter([]string{"email"})
+		filter := claims.NewAllowListClaimsFilter([]string{"email"})
 		result := filter.Filter(nil)
 
 		if result != nil {
@@ -292,7 +292,7 @@ func TestClaimsFilters(t *testing.T) {
 	})
 
 	t.Run("DenyListClaimsFilter with nil claims", func(t *testing.T) {
-		filter := NewDenyListClaimsFilter([]string{"internal"})
+		filter := claims.NewDenyListClaimsFilter([]string{"internal"})
 		result := filter.Filter(nil)
 
 		if result != nil {

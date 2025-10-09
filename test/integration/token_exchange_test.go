@@ -47,12 +47,15 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 
 	trustStore, tokenService := setupTestDependencies()
 
+	// Create claims filter registry for request context filtering
+	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
+
 	// Start server
 	srv := server.New(server.Config{
 		GRPCPort:       19090,
 		HTTPPort:       18080,
 		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
 	})
 
 	if err := srv.Start(ctx); err != nil {
@@ -124,12 +127,15 @@ func TestTokenExchangeJSON(t *testing.T) {
 
 	trustStore, tokenService := setupTestDependencies()
 
+	// Create claims filter registry for request context filtering
+	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
+
 	// Start server
 	srv := server.New(server.Config{
 		GRPCPort:       19091,
 		HTTPPort:       18081,
 		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
 	})
 
 	if err := srv.Start(ctx); err != nil {

@@ -8,86 +8,12 @@ import (
 	"github.com/alechenninger/parsec/internal/claims"
 )
 
-// ClaimsFilter defines which claims should be passed through from a credential
-type ClaimsFilter interface {
-	// Filter filters the claims, returning only those that should be passed through
-	Filter(c claims.Claims) claims.Claims
-}
-
-// AllowListClaimsFilter only allows claims in the allow list
-type AllowListClaimsFilter struct {
-	allowedClaims map[string]bool
-}
-
-// NewAllowListClaimsFilter creates a new allow list filter
-func NewAllowListClaimsFilter(allowedClaims []string) *AllowListClaimsFilter {
-	allowed := make(map[string]bool, len(allowedClaims))
-	for _, claim := range allowedClaims {
-		allowed[claim] = true
-	}
-	return &AllowListClaimsFilter{
-		allowedClaims: allowed,
-	}
-}
-
-// Filter implements ClaimsFilter
-func (f *AllowListClaimsFilter) Filter(c claims.Claims) claims.Claims {
-	if c == nil {
-		return nil
-	}
-	filtered := make(claims.Claims)
-	for key, value := range c {
-		if f.allowedClaims[key] {
-			filtered[key] = value
-		}
-	}
-	return filtered
-}
-
-// DenyListClaimsFilter blocks claims in the deny list
-type DenyListClaimsFilter struct {
-	deniedClaims map[string]bool
-}
-
-// NewDenyListClaimsFilter creates a new deny list filter
-func NewDenyListClaimsFilter(deniedClaims []string) *DenyListClaimsFilter {
-	denied := make(map[string]bool, len(deniedClaims))
-	for _, claim := range deniedClaims {
-		denied[claim] = true
-	}
-	return &DenyListClaimsFilter{
-		deniedClaims: denied,
-	}
-}
-
-// Filter implements ClaimsFilter
-func (f *DenyListClaimsFilter) Filter(c claims.Claims) claims.Claims {
-	if c == nil {
-		return nil
-	}
-	filtered := make(claims.Claims)
-	for key, value := range c {
-		if !f.deniedClaims[key] {
-			filtered[key] = value
-		}
-	}
-	return filtered
-}
-
-// PassthroughClaimsFilter passes all claims through
-type PassthroughClaimsFilter struct{}
-
-// Filter implements ClaimsFilter
-func (f *PassthroughClaimsFilter) Filter(c claims.Claims) claims.Claims {
-	return c.Copy()
-}
-
 // JSONValidator validates unsigned JSON credentials with a Result structure
 // It validates that the JSON matches the expected structure and filters claims
 // based on the configured filter
 type JSONValidator struct {
 	credTypes     []CredentialType
-	claimsFilter  ClaimsFilter
+	claimsFilter  claims.ClaimsFilter
 	trustDomain   string
 	requireIssuer bool
 }
@@ -96,7 +22,7 @@ type JSONValidator struct {
 type JSONValidatorOption func(*JSONValidator)
 
 // WithClaimsFilter sets the claims filter
-func WithClaimsFilter(filter ClaimsFilter) JSONValidatorOption {
+func WithClaimsFilter(filter claims.ClaimsFilter) JSONValidatorOption {
 	return func(v *JSONValidator) {
 		v.claimsFilter = filter
 	}
@@ -121,7 +47,7 @@ func WithRequireIssuer(require bool) JSONValidatorOption {
 func NewJSONValidator(opts ...JSONValidatorOption) *JSONValidator {
 	v := &JSONValidator{
 		credTypes:    []CredentialType{CredentialTypeJSON},
-		claimsFilter: &PassthroughClaimsFilter{},
+		claimsFilter: &claims.PassthroughClaimsFilter{},
 	}
 	for _, opt := range opts {
 		opt(v)

@@ -60,12 +60,18 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 
 	// 2. Extract actor credential from gRPC context
 	actorCred, err := extractActorCredential(ctx)
+	if err != nil {
+		return s.denyResponse(codes.Internal,
+			fmt.Sprintf("failed to extract actor credential: %v", err)), nil
+	}
+
 	var actor *trust.Result
 	if actorCred != nil {
-		actor, err = s.trustStore.Validate(ctx, actorCred)
-		if err != nil {
+		var validationErr error
+		actor, validationErr = s.trustStore.Validate(ctx, actorCred)
+		if validationErr != nil {
 			return s.denyResponse(codes.Unauthenticated,
-				fmt.Sprintf("actor validation failed: %v", err)), nil
+				fmt.Sprintf("actor validation failed: %v", validationErr)), nil
 		}
 	} else {
 		actor = trust.AnonymousResult()

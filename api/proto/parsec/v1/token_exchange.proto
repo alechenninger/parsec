@@ -55,6 +55,11 @@ message TokenExchangeRequest {
   // OPTIONAL. An identifier for the type of the security token in the
   // actor_token parameter.
   string actor_token_type = 9;
+
+  // OPTIONAL. Base64-encoded JSON object containing request context claims
+  // that the client wants to include in the issued token (per transaction
+  // token spec). These claims will be filtered based on the actor's permissions.
+  string request_context = 10;
 }
 
 // TokenExchangeResponse follows RFC 8693 Section 2.2

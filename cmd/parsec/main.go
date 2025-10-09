@@ -59,9 +59,13 @@ func run() error {
 	trustDomain := "parsec.example.com"
 	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
+	// Create claims filter registry
+	// This determines which request_context claims actors are allowed to provide
+	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
+
 	// Create service handlers
 	authzServer := server.NewAuthzServer(trustStore, tokenService)
-	exchangeServer := server.NewExchangeServer(trustStore, tokenService)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
 
 	// Create server configuration
 	cfg := server.Config{
