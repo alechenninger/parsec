@@ -43,6 +43,7 @@ import (
 //	}
 type CELMapper struct {
 	script string
+	ast    *cel.Ast // Pre-compiled AST
 }
 
 // NewCELMapper creates a new CEL-based claim mapper
@@ -52,22 +53,23 @@ func NewCELMapper(script string) (*CELMapper, error) {
 		return nil, fmt.Errorf("CEL script cannot be empty")
 	}
 
-	// Validate the script by compiling it with a test environment
-	// This catches syntax errors at construction time
-	testEnv, err := cel.NewEnv(
+	// Compile the script once at construction time
+	// Use a test environment with nil datasources for compilation
+	env, err := cel.NewEnv(
 		celhelpers.MapperInputLibrary(context.Background(), nil, nil),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create test CEL environment: %w", err)
+		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 
-	_, issues := testEnv.Compile(script)
+	ast, issues := env.Compile(script)
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CEL script: %w", issues.Err())
 	}
 
 	return &CELMapper{
 		script: script,
+		ast:    ast,
 	}, nil
 }
 
@@ -77,7 +79,8 @@ func (m *CELMapper) Map(ctx context.Context, input *issuer.MapperInput) (claims.
 		return nil, fmt.Errorf("mapper input cannot be nil")
 	}
 
-	// Create CEL environment with the datasource registry
+	// Create CEL environment with the datasource registry for this invocation
+	// This provides the runtime context (datasources) without recompiling
 	env, err := cel.NewEnv(
 		celhelpers.MapperInputLibrary(ctx, input.DataSourceRegistry, input.DataSourceInput),
 	)
@@ -85,19 +88,14 @@ func (m *CELMapper) Map(ctx context.Context, input *issuer.MapperInput) (claims.
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 
-	// Compile the script
-	ast, issues := env.Compile(m.script)
-	if issues != nil && issues.Err() != nil {
-		return nil, fmt.Errorf("failed to compile CEL script: %w", issues.Err())
-	}
-
-	// Create program
-	program, err := env.Program(ast)
+	// Create program from the pre-compiled AST with the runtime environment
+	// This allows us to inject different datasources per invocation
+	program, err := env.Program(m.ast)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL program: %w", err)
 	}
 
-	// Create activation with variables
+	// Create activation with variables for this invocation
 	activation := m.createActivation(ctx, input)
 
 	// Evaluate the program with the activation
