@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -57,6 +58,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 	// 1. Extract credentials from request
 	// The extraction layer returns both the credential and which headers were used
 	cred, headersUsed, err := s.extractCredential(req)
+
 	if err != nil {
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("failed to extract credentials: %v", err)), nil
 	}
@@ -160,21 +162,30 @@ func (s *AuthzServer) extractCredential(req *authv3.CheckRequest) (trust.Credent
 }
 
 // buildRequestAttributes extracts request attributes from the Envoy request
-func (s *AuthzServer) buildRequestAttributes(req *authv3.CheckRequest) *issuer.RequestAttributes {
+func (s *AuthzServer) buildRequestAttributes(req *authv3.CheckRequest) *request.RequestAttributes {
 	httpReq := req.GetAttributes().GetRequest().GetHttp()
 	if httpReq == nil {
-		return &issuer.RequestAttributes{}
+		return &request.RequestAttributes{}
 	}
 
-	return &issuer.RequestAttributes{
-		Method:    httpReq.GetMethod(),
-		Path:      httpReq.GetPath(),
-		IPAddress: req.GetAttributes().GetSource().GetAddress().GetSocketAddress().GetAddress(),
-		UserAgent: httpReq.GetHeaders()["user-agent"],
-		Headers:   httpReq.GetHeaders(),
-		Additional: map[string]any{
-			"host": httpReq.GetHost(),
-		},
+	additional := map[string]any{
+		"host": httpReq.GetHost(),
+	}
+
+	// Add Envoy context extensions
+	// These are custom key-value pairs set by Envoy configuration
+	// and provide additional context about the request
+	if contextExtensions := req.GetAttributes().GetContextExtensions(); len(contextExtensions) > 0 {
+		additional["context_extensions"] = contextExtensions
+	}
+
+	return &request.RequestAttributes{
+		Method:     httpReq.GetMethod(),
+		Path:       httpReq.GetPath(),
+		IPAddress:  req.GetAttributes().GetSource().GetAddress().GetSocketAddress().GetAddress(),
+		UserAgent:  httpReq.GetHeaders()["user-agent"],
+		Headers:    httpReq.GetHeaders(),
+		Additional: additional,
 	}
 }
 

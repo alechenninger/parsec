@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/request"
 )
 
 // StubStore is a simple in-memory trust store for testing
@@ -56,6 +57,13 @@ func (s *StubStore) Validate(ctx context.Context, credential Credential) (*Resul
 
 	// All validators failed
 	return nil, fmt.Errorf("all validators failed for credential type %s: %w", credType, errors[len(errors)-1])
+}
+
+// ForActor implements the Store interface
+// For StubStore, this is a no-op that returns the same store
+// Use FilteredStore for actual filtering logic
+func (s *StubStore) ForActor(ctx context.Context, actor *Result, requestAttrs *request.RequestAttributes) (Store, error) {
+	return s, nil
 }
 
 // StubValidator is a simple stub validator for testing

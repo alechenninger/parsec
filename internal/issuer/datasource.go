@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -65,29 +66,6 @@ type DataSourceResult struct {
 	ContentType DataSourceContentType
 }
 
-// RequestAttributes contains attributes about the incoming request
-// This is raw request data that will be processed by data sources and claim mappers
-// All fields are exported and JSON-serializable
-type RequestAttributes struct {
-	// Method is the HTTP method or RPC method name
-	Method string `json:"method,omitempty"`
-
-	// Path is the request path/resource being accessed
-	Path string `json:"path,omitempty"`
-
-	// IPAddress is the client IP address
-	IPAddress string `json:"ip_address,omitempty"`
-
-	// UserAgent is the client user agent
-	UserAgent string `json:"user_agent,omitempty"`
-
-	// Headers contains relevant HTTP headers
-	Headers map[string]string `json:"headers,omitempty"`
-
-	// Additional arbitrary context
-	Additional map[string]any `json:"additional,omitempty"`
-}
-
 // DataSourceInput contains the inputs available to a data source
 // All fields are exported and JSON-serializable for easy debugging and caching
 //
@@ -112,7 +90,7 @@ type DataSourceInput struct {
 	Workload *trust.Result `json:"workload,omitempty"`
 
 	// RequestAttributes contains information about the request
-	RequestAttributes *RequestAttributes `json:"request_attributes,omitempty"`
+	RequestAttributes *request.RequestAttributes `json:"request_attributes,omitempty"`
 }
 
 // DataSourceRegistry is a simple registry that stores data sources by name

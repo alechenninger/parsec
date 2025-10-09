@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -24,7 +25,7 @@ type MapperInput struct {
 	Workload *trust.Result
 
 	// RequestAttributes contains information about the request
-	RequestAttributes *RequestAttributes
+	RequestAttributes *request.RequestAttributes
 
 	// DataSourceRegistry provides access to data sources for lazy fetching
 	// Mappers can fetch only the data sources they need

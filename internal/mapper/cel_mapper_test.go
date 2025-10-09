@@ -8,6 +8,7 @@ import (
 
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -242,7 +243,7 @@ func TestCELMapper_Map(t *testing.T) {
 		}
 
 		input := &issuer.MapperInput{
-			RequestAttributes: &issuer.RequestAttributes{
+			RequestAttributes: &request.RequestAttributes{
 				Method:    "POST",
 				Path:      "/api/resource",
 				IPAddress: "192.168.1.1",
@@ -407,7 +408,7 @@ func TestCELMapper_Map(t *testing.T) {
 				ExpiresAt:   time.Now().Add(time.Hour),
 				IssuedAt:    time.Now(),
 			},
-			RequestAttributes: &issuer.RequestAttributes{
+			RequestAttributes: &request.RequestAttributes{
 				Method:    "GET",
 				Path:      "/api/resource",
 				IPAddress: "10.0.0.1",

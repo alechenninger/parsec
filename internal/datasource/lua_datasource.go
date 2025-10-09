@@ -9,6 +9,7 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -287,7 +288,7 @@ func (ds *LuaDataSource) luaTableToInput(tbl *lua.LTable) issuer.DataSourceInput
 	// Parse request attributes
 	if reqLV := tbl.RawGetString("request_attributes"); reqLV.Type() == lua.LTTable {
 		reqTbl := reqLV.(*lua.LTable)
-		reqAttrs := &issuer.RequestAttributes{
+		reqAttrs := &request.RequestAttributes{
 			Method:    lua.LVAsString(reqTbl.RawGetString("method")),
 			Path:      lua.LVAsString(reqTbl.RawGetString("path")),
 			IPAddress: lua.LVAsString(reqTbl.RawGetString("ip_address")),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -48,7 +49,7 @@ type IssueRequest struct {
 	Workload *trust.Result
 
 	// RequestAttributes contains information about the request
-	RequestAttributes *RequestAttributes
+	RequestAttributes *request.RequestAttributes
 
 	// TokenTypes specifies which token types to issue
 	TokenTypes []TokenType

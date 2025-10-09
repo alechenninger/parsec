@@ -64,6 +64,7 @@ const (
 	CredentialTypeOIDC   CredentialType = "oidc"
 	CredentialTypeMTLS   CredentialType = "mtls"
 	CredentialTypeOAuth2 CredentialType = "oauth2"
+	CredentialTypeJSON   CredentialType = "json"
 )
 
 // Credential is the interface for all credential types
@@ -124,4 +125,16 @@ type MTLSCredential struct {
 
 func (c *MTLSCredential) Type() CredentialType {
 	return CredentialTypeMTLS
+}
+
+// JSONCredential represents an unsigned JSON credential with a well-defined structure
+// This is used for pre-validated or self-asserted credentials where the structure
+// follows the Result format
+type JSONCredential struct {
+	// RawJSON is the raw JSON bytes
+	RawJSON []byte
+}
+
+func (c *JSONCredential) Type() CredentialType {
+	return CredentialTypeJSON
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -481,7 +482,7 @@ end
 			Subject: "user@example.com",
 			Issuer:  "https://idp.example.com",
 		},
-		RequestAttributes: &issuer.RequestAttributes{
+		RequestAttributes: &request.RequestAttributes{
 			Method: "POST",
 			Path:   "/api/resource",
 		},
@@ -698,7 +699,7 @@ end
 			Subject: "alice",
 			Issuer:  "https://idp.example.com",
 		},
-		RequestAttributes: &issuer.RequestAttributes{
+		RequestAttributes: &request.RequestAttributes{
 			Method: "GET",
 			Path:   "/token",
 		},

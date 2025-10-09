@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -341,7 +342,7 @@ func TestSerializeDeserializeInputJSON(t *testing.T) {
 				Issuer:      "https://idp.example.com",
 				TrustDomain: "example.com",
 			},
-			RequestAttributes: &issuer.RequestAttributes{
+			RequestAttributes: &request.RequestAttributes{
 				Method:    "GET",
 				Path:      "/api/resource",
 				IPAddress: "192.168.1.1",
@@ -403,7 +404,7 @@ func TestSerializeDeserializeInputJSON(t *testing.T) {
 				Issuer:  "https://idp.example.com",
 			},
 			// Intentionally unused field
-			RequestAttributes: &issuer.RequestAttributes{
+			RequestAttributes: &request.RequestAttributes{
 				Method: "GET",
 				Path:   "/api/resource",
 			},

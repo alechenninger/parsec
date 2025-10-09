@@ -6,6 +6,7 @@ import (
 
 	parsecv1 "github.com/alechenninger/parsec/api/gen/parsec/v1"
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -57,7 +58,7 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 	}
 
 	// 4. Build request attributes
-	reqAttrs := &issuer.RequestAttributes{
+	reqAttrs := &request.RequestAttributes{
 		Method: "TokenExchange",
 		Path:   "/v1/token",
 		Additional: map[string]any{
