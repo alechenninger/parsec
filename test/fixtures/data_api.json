@@ -1,0 +1,61 @@
+{
+  "fixtures": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://data-api.example.com/records",
+        "url_type": "exact"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"records\": [{\"id\": 1, \"name\": \"Record 1\"}, {\"id\": 2, \"name\": \"Record 2\"}]}"
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://data-api.example.com/records/\\d+",
+        "url_type": "pattern"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"id\": 1, \"name\": \"Record 1\", \"details\": \"Some details\"}"
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://data-api.example.com/records",
+        "url_type": "exact",
+        "headers": {
+          "Authorization": "Bearer test-token"
+        }
+      },
+      "response": {
+        "status": 201,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"id\": 3, \"name\": \"New Record\", \"created\": true}"
+      }
+    },
+    {
+      "request": {
+        "method": "DELETE",
+        "url": "https://data-api.example.com/records/\\d+",
+        "url_type": "pattern"
+      },
+      "response": {
+        "status": 204,
+        "body": ""
+      }
+    }
+  ]
+}
+

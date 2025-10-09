@@ -11,7 +11,7 @@ Functionality not yet well understood or yet lacking confidence the current arch
 
 ### Testability / test fixtures / "hermetic" mode
 
-- [ ] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
+- [X] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
 - [ ] CLI command to invoke the token service with defined fixtures and input values, in order to test claim mappers, claims filters, validator filters, etc.
 
 ### HTTP configuration for data sources

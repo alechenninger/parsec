@@ -1,0 +1,63 @@
+# Example HTTP fixtures for user API
+# This demonstrates YAML-based fixture definitions
+
+fixtures:
+  # Exact URL match for specific user
+  - request:
+      method: GET
+      url: https://api.example.com/user/alice
+      url_type: exact
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+        X-RateLimit-Remaining: "100"
+      body: '{"username": "alice", "email": "alice@example.com", "roles": ["admin", "user"]}'
+
+  # Exact URL match for another user
+  - request:
+      method: GET
+      url: https://api.example.com/user/bob
+      url_type: exact
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: '{"username": "bob", "email": "bob@example.com", "roles": ["user"]}'
+
+  # Pattern match for any user (fallback)
+  - request:
+      method: GET
+      url: https://api.example.com/user/.*
+      url_type: pattern
+    response:
+      status: 404
+      headers:
+        Content-Type: application/json
+      body: '{"error": "User not found"}'
+
+  # POST endpoint with header matching
+  - request:
+      method: POST
+      url: https://api.example.com/users
+      url_type: exact
+      headers:
+        Content-Type: application/json
+    response:
+      status: 201
+      headers:
+        Content-Type: application/json
+        Location: https://api.example.com/user/12345
+      body: '{"id": "12345", "username": "newuser", "created": true}'
+
+  # Wildcard method matching
+  - request:
+      method: "*"
+      url: https://api.example.com/health
+      url_type: exact
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: '{"status": "ok", "timestamp": "2025-01-01T00:00:00Z"}'
+

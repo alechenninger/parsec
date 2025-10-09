@@ -52,6 +52,10 @@ type LuaDataSourceConfig struct {
 	// HTTPRequestOptions is an optional function to modify HTTP requests before they are sent
 	// This can be used to add authentication headers, modify URLs, etc.
 	HTTPRequestOptions luaservices.RequestOptions
+
+	// HTTPConfig provides full HTTP service configuration including fixtures
+	// If set, this overrides HTTPTimeout and HTTPRequestOptions
+	HTTPConfig *luaservices.HTTPServiceConfig
 }
 
 // NewLuaDataSource creates a new Lua data source
@@ -83,14 +87,22 @@ func NewLuaDataSource(config LuaDataSourceConfig) (*LuaDataSource, error) {
 		return nil, fmt.Errorf("script must define a 'fetch' function")
 	}
 
+	// Build HTTP config
+	var httpConfig luaservices.HTTPServiceConfig
+	if config.HTTPConfig != nil {
+		httpConfig = *config.HTTPConfig
+	} else {
+		httpConfig = luaservices.HTTPServiceConfig{
+			Timeout:        config.HTTPTimeout,
+			RequestOptions: config.HTTPRequestOptions,
+		}
+	}
+
 	return &LuaDataSource{
 		name:         config.Name,
 		script:       config.Script,
 		configSource: config.ConfigSource,
-		httpConfig: luaservices.HTTPServiceConfig{
-			Timeout:        config.HTTPTimeout,
-			RequestOptions: config.HTTPRequestOptions,
-		},
+		httpConfig:   httpConfig,
 	}, nil
 }
 
@@ -355,6 +367,10 @@ type CacheableLuaDataSourceConfig struct {
 	// This can be used to add authentication headers, modify URLs, etc.
 	HTTPRequestOptions luaservices.RequestOptions
 
+	// HTTPConfig provides full HTTP service configuration including fixtures
+	// If set, this overrides HTTPTimeout and HTTPRequestOptions
+	HTTPConfig *luaservices.HTTPServiceConfig
+
 	// CacheKeyFunc is the name of the Lua function that generates cache keys
 	// REQUIRED - the function should take an input table and return a modified input table
 	// with only the fields relevant for caching
@@ -387,6 +403,7 @@ func NewCacheableLuaDataSource(config CacheableLuaDataSourceConfig) (*CacheableL
 		ConfigSource:       config.ConfigSource,
 		HTTPTimeout:        config.HTTPTimeout,
 		HTTPRequestOptions: config.HTTPRequestOptions,
+		HTTPConfig:         config.HTTPConfig,
 	})
 	if err != nil {
 		return nil, err

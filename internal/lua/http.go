@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/httpfixture"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -30,6 +31,10 @@ type HTTPServiceConfig struct {
 	// RequestOptions function to process requests before sending
 	// Can be used to add authentication, modify headers, etc.
 	RequestOptions RequestOptions
+
+	// FixtureProvider provides HTTP fixtures for testing
+	// If set, HTTP requests will use fixtures instead of making real calls
+	FixtureProvider httpfixture.FixtureProvider
 }
 
 // NewHTTPService creates a new HTTP service with configurable timeout
@@ -44,9 +49,22 @@ func NewHTTPServiceWithConfig(config HTTPServiceConfig) *HTTPService {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
+
+	// Configure transport based on whether fixtures are provided
+	var transport http.RoundTripper
+	if config.FixtureProvider != nil {
+		transport = httpfixture.NewTransport(httpfixture.TransportConfig{
+			Provider: config.FixtureProvider,
+			Strict:   true,
+		})
+	} else {
+		transport = http.DefaultTransport
+	}
+
 	return &HTTPService{
 		client: &http.Client{
-			Timeout: config.Timeout,
+			Timeout:   config.Timeout,
+			Transport: transport,
 		},
 		timeout:        config.Timeout,
 		requestOptions: config.RequestOptions,

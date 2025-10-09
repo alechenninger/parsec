@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4
+	github.com/goccy/go-yaml v1.18.0
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8
 	github.com/google/cel-go v0.26.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.19.0
