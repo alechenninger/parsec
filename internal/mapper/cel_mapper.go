@@ -18,7 +18,7 @@ import (
 // The CEL expression has access to the following variables:
 //   - datasource(name) - function to fetch data from a named data source
 //   - subject - the subject identity information as a map
-//   - workload - the workload identity information as a map
+//   - actor - the actor identity information as a map
 //   - request - the request attributes as a map
 //
 // The expression should evaluate to a map that will be used as the claims.
@@ -129,8 +129,8 @@ func (m *CELMapper) Script() string {
 // createActivation creates a CEL activation with variables
 func (m *CELMapper) createActivation(ctx context.Context, input *issuer.MapperInput) map[string]any {
 	activation := map[string]any{
-		// subject, workload, and request are provided as direct values
-		// Access them in CEL as: subject.field, workload.field, request.field
+		// subject, actor, and request are provided as direct values
+		// Access them in CEL as: subject.field, actor.field, request.field
 		"subject": func() any {
 			if input.Subject == nil {
 				return nil
@@ -138,11 +138,11 @@ func (m *CELMapper) createActivation(ctx context.Context, input *issuer.MapperIn
 			return trustResultToMap(input.Subject)
 		}(),
 
-		"workload": func() any {
-			if input.Workload == nil {
+		"actor": func() any {
+			if input.Actor == nil {
 				return nil
 			}
-			return trustResultToMap(input.Workload)
+			return trustResultToMap(input.Actor)
 		}(),
 
 		"request": func() any {

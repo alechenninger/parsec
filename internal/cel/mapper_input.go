@@ -21,7 +21,7 @@ type DataSourceRegistry interface {
 //
 // This provides compile-time declarations for:
 //   - datasource(name) - function to fetch data from a named data source
-//   - subject, workload, request - variables containing identity and request data
+//   - subject, actor, request - variables containing identity and request data
 //
 // Pass nil for registry to create a test/validation environment.
 func MapperInputLibrary(ctx context.Context, registry *issuer.DataSourceRegistry, dsInput *issuer.DataSourceInput) cel.EnvOption {
@@ -52,7 +52,7 @@ func (lib *mapperInputLib) CompileOptions() []cel.EnvOption {
 		),
 		// Declare other variables as dynamic types
 		cel.Variable("subject", cel.DynType),
-		cel.Variable("workload", cel.DynType),
+		cel.Variable("actor", cel.DynType),
 		cel.Variable("request", cel.DynType),
 	}
 }

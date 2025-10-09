@@ -86,8 +86,8 @@ type DataSourceInput struct {
 	// Subject identity (attested claims from validated credential)
 	Subject *trust.Result `json:"subject,omitempty"`
 
-	// Workload identity (attested claims from workload credential)
-	Workload *trust.Result `json:"workload,omitempty"`
+	// Actor identity (attested claims from actor credential)
+	Actor *trust.Result `json:"actor,omitempty"`
 
 	// RequestAttributes contains information about the request
 	RequestAttributes *request.RequestAttributes `json:"request_attributes,omitempty"`

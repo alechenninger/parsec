@@ -55,29 +55,44 @@ func NewAuthzServer(trustStore trust.Store, tokenService *issuer.TokenService) *
 
 // Check implements the ext_authz check endpoint
 func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.CheckResponse, error) {
-	// 1. Extract credentials from request
+	// 1. Build request attributes
+	reqAttrs := s.buildRequestAttributes(req)
+
+	// 2. Extract actor credential from gRPC context
+	actorCred, err := extractActorCredential(ctx)
+	var actor *trust.Result
+	if actorCred != nil {
+		actor, err = s.trustStore.Validate(ctx, actorCred)
+		if err != nil {
+			return s.denyResponse(codes.Unauthenticated,
+				fmt.Sprintf("actor validation failed: %v", err)), nil
+		}
+	} else {
+		actor = trust.AnonymousResult()
+	}
+
+	// 3. Filter trust store based on actor permissions
+	filteredStore, err := s.trustStore.ForActor(ctx, actor, reqAttrs)
+	if err != nil {
+		return s.denyResponse(codes.PermissionDenied,
+			fmt.Sprintf("failed to filter trust store: %v", err)), nil
+	}
+
+	// 4. Extract subject credentials from request
 	// The extraction layer returns both the credential and which headers were used
 	cred, headersUsed, err := s.extractCredential(req)
-
 	if err != nil {
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("failed to extract credentials: %v", err)), nil
 	}
 
-	// 2. Validate credentials against trust store
-	// The trust store determines the appropriate validator based on credential type and issuer
-	result, err := s.trustStore.Validate(ctx, cred)
+	// 5. Validate subject credentials against filtered trust store
+	// The filtered store only includes validators the actor is allowed to use
+	result, err := filteredStore.Validate(ctx, cred)
 	if err != nil {
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("validation failed: %v", err)), nil
 	}
 
-	// 3. Build request attributes
-	reqAttrs := s.buildRequestAttributes(req)
-
-	// 4. Extract workload identity (if available)
-	// TODO: Extract from mTLS cert, SPIFFE header, etc.
-	var workload *trust.Result = nil
-
-	// 5. Issue tokens via TokenService
+	// 6. Issue tokens via TokenService
 	tokenTypes := make([]issuer.TokenType, len(s.TokenTypesToIssue))
 	for i, spec := range s.TokenTypesToIssue {
 		tokenTypes[i] = spec.Type
@@ -85,7 +100,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 
 	issuedTokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
 		Subject:           result,
-		Workload:          workload,
+		Actor:             actor,
 		RequestAttributes: reqAttrs,
 		TokenTypes:        tokenTypes,
 		// TODO: Get scope from configuration or request
@@ -95,7 +110,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		return s.denyResponse(codes.Internal, fmt.Sprintf("failed to issue tokens: %v", err)), nil
 	}
 
-	// 6. Build response headers from issued tokens
+	// 7. Build response headers from issued tokens
 	responseHeaders := make([]*corev3.HeaderValueOption, 0, len(issuedTokens))
 	for _, spec := range s.TokenTypesToIssue {
 		if token, ok := issuedTokens[spec.Type]; ok {
@@ -108,7 +123,7 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		}
 	}
 
-	// 7. Return OK with issued tokens in headers
+	// 8. Return OK with issued tokens in headers
 	// Remove the external credential headers so they don't leak to backend
 	// This creates a security boundary - external credentials stay outside
 	return &authv3.CheckResponse{

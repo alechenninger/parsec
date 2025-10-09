@@ -15,8 +15,8 @@ type TokenContext struct {
 	// Subject identity (attested claims from validated credential)
 	Subject *trust.Result
 
-	// Workload identity (attested claims from workload credential, e.g., mTLS)
-	Workload *trust.Result
+	// Actor identity (attested claims from actor credential, e.g., mTLS)
+	Actor *trust.Result
 
 	// TransactionContext goes into the token as "tctx" claim
 	// This is the result of applying claim mappers and data sources

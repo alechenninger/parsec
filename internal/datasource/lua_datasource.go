@@ -171,20 +171,20 @@ func (ds *LuaDataSource) inputToLuaTable(L *lua.LState, input *issuer.DataSource
 		L.SetField(tbl, "subject", subjectTbl)
 	}
 
-	if input.Workload != nil {
-		workloadTbl := L.NewTable()
-		L.SetField(workloadTbl, "subject", lua.LString(input.Workload.Subject))
-		L.SetField(workloadTbl, "issuer", lua.LString(input.Workload.Issuer))
+	if input.Actor != nil {
+		actorTbl := L.NewTable()
+		L.SetField(actorTbl, "subject", lua.LString(input.Actor.Subject))
+		L.SetField(actorTbl, "issuer", lua.LString(input.Actor.Issuer))
 
-		if len(input.Workload.Claims) > 0 {
+		if len(input.Actor.Claims) > 0 {
 			claimsTbl := L.NewTable()
-			for key, value := range input.Workload.Claims {
+			for key, value := range input.Actor.Claims {
 				claimsTbl.RawSetString(key, luaservices.GoToLua(L, value))
 			}
-			L.SetField(workloadTbl, "claims", claimsTbl)
+			L.SetField(actorTbl, "claims", claimsTbl)
 		}
 
-		L.SetField(tbl, "workload", workloadTbl)
+		L.SetField(tbl, "actor", actorTbl)
 	}
 
 	if input.RequestAttributes != nil {
@@ -270,19 +270,19 @@ func (ds *LuaDataSource) luaTableToInput(tbl *lua.LTable) issuer.DataSourceInput
 		input.Subject = subject
 	}
 
-	// Parse workload
-	if workloadLV := tbl.RawGetString("workload"); workloadLV.Type() == lua.LTTable {
-		workloadTbl := workloadLV.(*lua.LTable)
-		workload := &trust.Result{
-			Subject: lua.LVAsString(workloadTbl.RawGetString("subject")),
-			Issuer:  lua.LVAsString(workloadTbl.RawGetString("issuer")),
+	// Parse actor
+	if actorLV := tbl.RawGetString("actor"); actorLV.Type() == lua.LTTable {
+		actorTbl := actorLV.(*lua.LTable)
+		actor := &trust.Result{
+			Subject: lua.LVAsString(actorTbl.RawGetString("subject")),
+			Issuer:  lua.LVAsString(actorTbl.RawGetString("issuer")),
 		}
 
-		if claimsLV := workloadTbl.RawGetString("claims"); claimsLV.Type() == lua.LTTable {
-			workload.Claims = luaTableToMap(claimsLV.(*lua.LTable))
+		if claimsLV := actorTbl.RawGetString("claims"); claimsLV.Type() == lua.LTTable {
+			actor.Claims = luaTableToMap(claimsLV.(*lua.LTable))
 		}
 
-		input.Workload = workload
+		input.Actor = actor
 	}
 
 	// Parse request attributes

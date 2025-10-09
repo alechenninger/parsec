@@ -33,31 +33,7 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		return nil, fmt.Errorf("unsupported grant_type: %s", req.GrantType)
 	}
 
-	// 2. Validate subject_token
-	// Create strongly-typed credential based on token type
-	// In production, we'd parse the token_type to determine the specific credential type
-	// For now, we'll treat all as bearer tokens
-	// TODO: Parse subject_token_type to determine specific credential type (JWT, OIDC, etc.)
-	cred := &trust.BearerCredential{
-		Token: req.SubjectToken,
-	}
-
-	// Validate credential against trust store
-	// The trust store determines the appropriate validator based on credential type and issuer
-	result, err := s.trustStore.Validate(ctx, cred)
-	if err != nil {
-		return nil, fmt.Errorf("token validation failed: %w", err)
-	}
-
-	// 3. Determine which token type to issue
-	// RFC 8693: If requested_token_type is not specified, default to access_token
-	// For parsec, we default to transaction tokens
-	requestedTokenType := issuer.TokenTypeTransactionToken
-	if req.RequestedTokenType != "" {
-		requestedTokenType = issuer.TokenType(req.RequestedTokenType)
-	}
-
-	// 4. Build request attributes
+	// 2. Build request attributes
 	reqAttrs := &request.RequestAttributes{
 		Method: "TokenExchange",
 		Path:   "/v1/token",
@@ -67,18 +43,59 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		},
 	}
 
-	// 5. Validate audience matches trust domain (per transaction token spec)
+	// 3. Extract actor credential from gRPC context
+	actorCred, err := extractActorCredential(ctx)
+	var actor *trust.Result
+	if actorCred != nil {
+		actor, err = s.trustStore.Validate(ctx, actorCred)
+		if err != nil {
+			return nil, fmt.Errorf("actor validation failed: %w", err)
+		}
+	} else {
+		actor = trust.AnonymousResult()
+	}
+
+	// 4. Filter trust store based on actor permissions
+	filteredStore, err := s.trustStore.ForActor(ctx, actor, reqAttrs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter trust store: %w", err)
+	}
+
+	// 5. Validate subject_token
+	// Create strongly-typed credential based on token type
+	// In production, we'd parse the token_type to determine the specific credential type
+	// For now, we'll treat all as bearer tokens
+	// TODO: Parse subject_token_type to determine specific credential type (JWT, OIDC, etc.)
+	cred := &trust.BearerCredential{
+		Token: req.SubjectToken,
+	}
+
+	// Validate subject credential against filtered trust store
+	// The filtered store only includes validators the actor is allowed to use
+	result, err := filteredStore.Validate(ctx, cred)
+	if err != nil {
+		return nil, fmt.Errorf("token validation failed: %w", err)
+	}
+
+	// 6. Determine which token type to issue
+	// RFC 8693: If requested_token_type is not specified, default to access_token
+	// For parsec, we default to transaction tokens
+	requestedTokenType := issuer.TokenTypeTransactionToken
+	if req.RequestedTokenType != "" {
+		requestedTokenType = issuer.TokenType(req.RequestedTokenType)
+	}
+
+	// 7. Validate audience matches trust domain (per transaction token spec)
 	// The audience for transaction tokens is always the trust domain
 	if req.Audience != "" && req.Audience != s.tokenService.TrustDomain() {
 		return nil, fmt.Errorf("requested audience %q does not match trust domain %q",
 			req.Audience, s.tokenService.TrustDomain())
 	}
 
-	// 6. Issue the token via TokenService
-	// No workload identity in token exchange (it's an external call)
+	// 8. Issue the token via TokenService
 	tokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
 		Subject:           result,
-		Workload:          nil,
+		Actor:             actor,
 		RequestAttributes: reqAttrs,
 		TokenTypes:        []issuer.TokenType{requestedTokenType},
 		Scope:             req.Scope,
@@ -92,7 +109,7 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 		return nil, fmt.Errorf("token service did not return requested token type %s", requestedTokenType)
 	}
 
-	// 7. Return response
+	// 9. Return response
 	return &parsecv1.TokenExchangeResponse{
 		AccessToken:     token.Value,
 		IssuedTokenType: string(requestedTokenType),

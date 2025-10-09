@@ -55,6 +55,12 @@ type Result struct {
 	Scope string `json:"scope,omitempty"`
 }
 
+// AnonymousResult returns a Result representing an anonymous/unauthenticated actor
+// This is used when no actor credentials are present or provided
+func AnonymousResult() *Result {
+	return &Result{}
+}
+
 // CredentialType indicates the type of credential
 type CredentialType string
 

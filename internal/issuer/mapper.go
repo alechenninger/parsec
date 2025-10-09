@@ -21,8 +21,8 @@ type MapperInput struct {
 	// Subject identity (attested claims from validated credential)
 	Subject *trust.Result
 
-	// Workload identity (attested claims from workload credential)
-	Workload *trust.Result
+	// Actor identity (attested claims from actor credential)
+	Actor *trust.Result
 
 	// RequestAttributes contains information about the request
 	RequestAttributes *request.RequestAttributes

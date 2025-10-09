@@ -44,9 +44,9 @@ type IssueRequest struct {
 	// Subject identity (attested claims from validated credential)
 	Subject *trust.Result
 
-	// Workload identity (attested claims from workload credential, e.g., mTLS)
-	// May be nil if workload identity is not available
-	Workload *trust.Result
+	// Actor identity (attested claims from actor credential, e.g., mTLS)
+	// May be nil if actor identity is not available
+	Actor *trust.Result
 
 	// RequestAttributes contains information about the request
 	RequestAttributes *request.RequestAttributes
@@ -64,14 +64,14 @@ func (ts *TokenService) IssueTokens(ctx context.Context, req *IssueRequest) (map
 	// 1. Build data source input
 	dataSourceInput := &DataSourceInput{
 		Subject:           req.Subject,
-		Workload:          req.Workload,
+		Actor:             req.Actor,
 		RequestAttributes: req.RequestAttributes,
 	}
 
 	// 2. Build mapper input with data source registry for lazy fetching
 	mapperInput := &MapperInput{
 		Subject:            req.Subject,
-		Workload:           req.Workload,
+		Actor:              req.Actor,
 		RequestAttributes:  req.RequestAttributes,
 		DataSourceRegistry: ts.dataSources,
 		DataSourceInput:    dataSourceInput,
@@ -94,7 +94,7 @@ func (ts *TokenService) IssueTokens(ctx context.Context, req *IssueRequest) (map
 	// Audience is always the trust domain per transaction token spec
 	tokenCtx := &TokenContext{
 		Subject:            req.Subject,
-		Workload:           req.Workload,
+		Actor:              req.Actor,
 		TransactionContext: transactionContext,
 		RequestContext:     requestContext,
 		Audience:           ts.trustDomain,

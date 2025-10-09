@@ -198,17 +198,17 @@ func TestCELMapper_Map(t *testing.T) {
 		}
 	})
 
-	t.Run("access workload", func(t *testing.T) {
+	t.Run("access actor", func(t *testing.T) {
 		mapper, err := NewCELMapper(`{
-			"workload_id": workload.subject,
-			"workload_trust_domain": workload.trust_domain
+			"actor_id": actor.subject,
+			"actor_trust_domain": actor.trust_domain
 		}`)
 		if err != nil {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
 		input := &issuer.MapperInput{
-			Workload: &trust.Result{
+			Actor: &trust.Result{
 				Subject:     "spiffe://example.com/service/api",
 				Issuer:      "https://spiffe.example.com",
 				TrustDomain: "spiffe-domain",
@@ -222,12 +222,12 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if result["workload_id"] != "spiffe://example.com/service/api" {
-			t.Errorf("expected workload_id=spiffe://example.com/service/api, got %v", result["workload_id"])
+		if result["actor_id"] != "spiffe://example.com/service/api" {
+			t.Errorf("expected actor_id=spiffe://example.com/service/api, got %v", result["actor_id"])
 		}
 
-		if result["workload_trust_domain"] != "spiffe-domain" {
-			t.Errorf("expected workload_trust_domain=spiffe-domain, got %v", result["workload_trust_domain"])
+		if result["actor_trust_domain"] != "spiffe-domain" {
+			t.Errorf("expected actor_trust_domain=spiffe-domain, got %v", result["actor_trust_domain"])
 		}
 	})
 
@@ -442,7 +442,7 @@ func TestCELMapper_Map(t *testing.T) {
 	t.Run("handles nil input gracefully", func(t *testing.T) {
 		mapper, err := NewCELMapper(`{
 			"has_subject": subject != null,
-			"has_workload": workload != null,
+			"has_actor": actor != null,
 			"has_request": request != null
 		}`)
 		if err != nil {
@@ -462,8 +462,8 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Errorf("expected has_subject=false, got %v", result["has_subject"])
 		}
 
-		if result["has_workload"] != false {
-			t.Errorf("expected has_workload=false, got %v", result["has_workload"])
+		if result["has_actor"] != false {
+			t.Errorf("expected has_actor=false, got %v", result["has_actor"])
 		}
 
 		if result["has_request"] != false {
