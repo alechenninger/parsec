@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/golang/groupcache"
 
@@ -52,8 +54,12 @@ func NewDistributedCachingDataSource(source issuer.DataSource, config Distribute
 	// Create the getter function that will be called on cache miss
 	// This may be called on a different server in the groupcache peer pool
 	getter := groupcache.GetterFunc(func(ctx context.Context, key string, dest groupcache.Sink) error {
+		// Strip TTL timestamp suffix if present (format: "...json...:ttl:timestamp")
+		// The cache key may include a TTL-based timestamp for expiration
+		inputJSON := stripTTLSuffix(key)
+
 		// Deserialize the cache key back into the masked input
-		maskedInput, err := DeserializeInputFromJSON(key)
+		maskedInput, err := DeserializeInputFromJSON(inputJSON)
 		if err != nil {
 			return fmt.Errorf("failed to deserialize cache key: %w", err)
 		}
@@ -83,7 +89,7 @@ func NewDistributedCachingDataSource(source issuer.DataSource, config Distribute
 
 		// Store in groupcache
 		// Note: groupcache handles its own eviction based on LRU and cache size
-		// The TTL from Cacheable is not used in groupcache (it uses LRU instead)
+		// TTL-based expiration is implemented by including a rounded timestamp in the cache key
 		return dest.SetBytes(entryBytes)
 	})
 
@@ -121,6 +127,15 @@ func (c *DistributedCachingDataSource) Fetch(ctx context.Context, input *issuer.
 		return c.source.Fetch(ctx, input)
 	}
 
+	// Add TTL-based timestamp to cache key for effective expiration
+	// This rounds the timestamp to the nearest TTL interval so that
+	// entries naturally "expire" as time intervals change
+	ttl := c.cacheable.CacheTTL()
+	if ttl > 0 {
+		roundedTimestamp := roundTimestampToInterval(time.Now(), ttl)
+		cacheKeyStr = fmt.Sprintf("%s:ttl:%d", cacheKeyStr, roundedTimestamp.Unix())
+	}
+
 	// Fetch from groupcache (will hit cache or call getter)
 	var cachedBytes []byte
 	err = c.group.Get(ctx, cacheKeyStr, groupcache.AllocatingByteSliceSink(&cachedBytes))
@@ -138,6 +153,32 @@ func (c *DistributedCachingDataSource) Fetch(ctx context.Context, input *issuer.
 		Data:        entry.Data,
 		ContentType: entry.ContentType,
 	}, nil
+}
+
+// roundTimestampToInterval rounds a timestamp to the nearest interval boundary.
+// This is used to create cache keys that naturally expire as time intervals change.
+// For example, with a 5-minute TTL:
+//   - 10:00:00 -> 10:00:00
+//   - 10:02:30 -> 10:00:00
+//   - 10:05:00 -> 10:05:00
+//   - 10:07:30 -> 10:05:00
+func roundTimestampToInterval(t time.Time, interval time.Duration) time.Time {
+	unixNano := t.UnixNano()
+	intervalNano := interval.Nanoseconds()
+	roundedNano := (unixNano / intervalNano) * intervalNano
+	return time.Unix(0, roundedNano)
+}
+
+// stripTTLSuffix removes the ":ttl:timestamp" suffix from a cache key if present.
+// Cache keys may include a TTL-based timestamp for expiration: "...json...:ttl:1234567890"
+// This function extracts just the JSON portion.
+func stripTTLSuffix(key string) string {
+	// Look for the ":ttl:" marker
+	const ttlMarker = ":ttl:"
+	if idx := strings.Index(key, ttlMarker); idx >= 0 {
+		return key[:idx]
+	}
+	return key
 }
 
 // SerializeInputToJSON serializes a DataSourceInput to JSON (reversible)
