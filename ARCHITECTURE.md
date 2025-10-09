@@ -8,6 +8,15 @@ parsec is a gRPC-first service that implements:
 
 Both services issue transaction tokens following the [draft-ietf-oauth-transaction-tokens](https://datatracker.ietf.org/doc/draft-ietf-oauth-transaction-tokens/) specification.
 
+### Key Features
+
+- **Dual identity support**: Subject credentials (end users) and actor credentials (services/machines)
+- **Pluggable validation**: JWT (JWKS), JSON (unsigned structured credentials), OAuth2 introspection
+- **Dynamic claim enrichment**: Lua-scriptable data sources with HTTP/JSON services
+- **CEL-based claim mapping**: Flexible policy language for token claims
+- **Caching**: In-memory and distributed caching for data sources
+- **Validator filtering**: Actor-based authorization for credential validation
+
 ## Protocol Architecture
 
 ### Unified Stack
@@ -91,35 +100,52 @@ parsec/
 │   │   ├── server.go            # gRPC + HTTP server setup
 │   │   ├── authz.go             # ext_authz implementation
 │   │   ├── exchange.go          # Token exchange implementation
-│   │   └── form_marshaler.go   # RFC 8693 form encoding support
+│   │   └── form_marshaler.go    # RFC 8693 form encoding support
 │   │
 │   ├── trust/                   # Trust and credential validation
 │   │   ├── validator.go         # Validator interface and credential types
-│   │   ├── jwt_validator.go    # JWT validation with JWKS
-│   │   └── store.go             # Trust store interface
+│   │   ├── jwt_validator.go     # JWT validation with JWKS
+│   │   ├── json_validator.go    # JSON credential validation
+│   │   ├── store.go             # Trust store interface
+│   │   ├── filtered_store.go    # Actor-based store filtering
+│   │   ├── cel_validator_filter.go  # CEL-based validator filtering
+│   │   └── stub.go              # Stub implementations for testing
 │   │
 │   ├── issuer/                  # Token issuance orchestration
 │   │   ├── issuer.go            # Issuer interface and TokenContext
 │   │   ├── service.go           # TokenService orchestrates issuance
 │   │   ├── registry.go          # Registry for managing issuers
-│   │   ├── mapper.go            # ClaimMapper for transaction context
+│   │   ├── mapper.go            # ClaimMapper interface
 │   │   ├── datasource.go        # DataSource interface for enrichment
+│   │   ├── unsigned_issuer.go   # Unsigned token issuer
+│   │   ├── stub.go              # Stub implementations for testing
 │   │   └── types.go             # TokenType definitions
 │   │
+│   ├── mapper/                  # Claim mapper implementations
+│   │   └── cel_mapper.go        # CEL-based claim mapping
+│   │
 │   ├── datasource/              # Data source implementations
-│   │   ├── lua_datasource.go   # Lua-scriptable data sources
+│   │   ├── lua_datasource.go    # Lua-scriptable data sources
 │   │   ├── in_memory_caching_datasource.go
 │   │   ├── distributed_caching_datasource.go
 │   │   ├── examples/            # Example Lua scripts
-│   │   └── LUA_DATASOURCE.md   # Lua data source documentation
+│   │   └── LUA_DATASOURCE.md    # Lua data source documentation
 │   │
 │   ├── lua/                     # Lua runtime services
 │   │   ├── http.go              # HTTP client for Lua
 │   │   ├── json.go              # JSON encoding/decoding
 │   │   └── config.go            # Configuration access
 │   │
-│   ├── claims/
-│   │   └── claims.go            # Claims type with helper methods
+│   ├── cel/                     # CEL (Common Expression Language) support
+│   │   ├── mapper_input.go      # CEL library for mapper input
+│   │   └── README.md            # CEL integration documentation
+│   │
+│   ├── claims/                  # Claims handling
+│   │   ├── claims.go            # Claims type with helper methods
+│   │   └── filter.go            # Claims filtering interfaces
+│   │
+│   ├── request/                 # Request attributes
+│   │   └── request.go           # RequestAttributes type
 │   │
 │   ├── keymanager/              # Key management (TODO)
 │   └── config/                  # Configuration loading (TODO)
@@ -127,89 +153,8 @@ parsec/
 ├── docs/
 │   └── CREDENTIAL_DESIGN.md     # Credential extraction and validation design
 │
-├── CONTRACTS.md                 # Component interface contracts
 └── configs/                     # Configuration files (TODO)
 ```
-
-## Implementation Status
-
-### ✅ Complete
-
-**Core Infrastructure:**
-- [x] Go project scaffolding
-- [x] Proto definitions for token exchange
-- [x] Code generation with buf (remote plugins)
-- [x] gRPC server with both services registered
-- [x] HTTP server with grpc-gateway transcoding
-- [x] RFC 8693 compliance (form-urlencoded support)
-- [x] Custom marshaler for grpc-gateway
-- [x] Basic build and run
-
-**Trust & Validation:**
-- [x] Credential validation interface (`trust.Validator`)
-- [x] Strongly-typed credential types (Bearer, JWT, OIDC, mTLS)
-- [x] JWT validator with JWKS support
-- [x] Trust store interface for multi-domain support
-- [x] Credential extraction layer with security boundary
-
-**Token Issuance:**
-- [x] Token issuer interface (`issuer.Issuer`)
-- [x] Token service orchestration (`issuer.TokenService`)
-- [x] Issuer registry for multiple token types
-- [x] Claim mapper system for transaction context building
-- [x] Transaction token claims structure (draft-ietf-oauth-transaction-tokens)
-
-**Data Enrichment:**
-- [x] Data source interface for token enrichment
-- [x] Lua-scriptable data sources with HTTP/JSON/config services
-- [x] In-memory caching for data sources
-- [x] Distributed caching with groupcache
-- [x] Cacheable interface for TTL-based caching
-- [x] Example Lua scripts (user data, regional data, multi-source)
-
-**Services:**
-- [x] ext_authz implementation with credential extraction
-- [x] Token exchange implementation (RFC 8693)
-- [x] Security boundary: external credentials removed at perimeter
-- [x] Request attribute extraction for context building
-
-**Testing & Documentation:**
-- [x] Unit tests for validators, issuers, data sources, caching
-- [x] Integration tests for token exchange
-- [x] CONTRACTS.md - Component interface documentation
-- [x] CREDENTIAL_DESIGN.md - Credential design patterns
-- [x] LUA_DATASOURCE.md - Lua data source guide
-
-### 🚧 In Progress / TODO
-
-**Key Management:**
-- [ ] Spire KeyManager integration
-- [ ] Real JWT issuer with signing (currently stub only)
-- [ ] Public key exposure (JWKS endpoint)
-
-**Trust Store:**
-- [ ] Static trust store implementation (YAML config)
-- [ ] Dynamic/reloadable trust store
-- [ ] Multi-issuer support in store
-
-**Configuration:**
-- [ ] Configuration file format (YAML)
-- [ ] Configuration loading and validation
-- [ ] Environment variable overrides
-- [ ] Hot reload support
-
-**Observability:**
-- [ ] Structured logging (zerolog or similar)
-- [ ] Metrics (Prometheus)
-- [ ] Distributed tracing (OpenTelemetry)
-- [ ] Health/readiness checks
-
-**Production Readiness:**
-- [ ] Graceful shutdown
-- [ ] Rate limiting
-- [ ] Circuit breakers for external data sources
-- [ ] Comprehensive error handling
-- [ ] Production deployment examples
 
 ## Building and Running
 
@@ -236,24 +181,45 @@ parsec uses a layered architecture for token issuance:
 
 ```
 1. Credential Extraction
-   └─> Strongly-typed credentials (Bearer, JWT, mTLS, etc.)
+   └─> Strongly-typed credentials (Bearer, JWT, JSON, mTLS, etc.)
 
-2. Validation (trust.Validator)
+2. Validation (trust.Validator → trust.Store)
    └─> Validated identity (trust.Result with claims)
+   └─> Trust store determines appropriate validator based on credential type
+   └─> Optional actor-based filtering (ForActor method)
 
 3. Data Enrichment (issuer.DataSource)
    └─> Fetch additional context from external sources
    └─> Lua-scriptable with HTTP/JSON services
    └─> In-memory and distributed caching
+   └─> Lazy evaluation during claim mapping
 
 4. Claim Mapping (issuer.ClaimMapper)
    └─> Build transaction context (tctx) and request context (req_ctx)
-   └─> Policy logic: what claims to include in tokens
+   └─> CEL expressions for flexible policy logic
+   └─> Access to subject, actor, request, and data sources
+   └─> Multiple mappers compose to build final claims
 
 5. Token Issuance (issuer.Issuer)
    └─> Sign and mint transaction tokens
    └─> JWT with draft-ietf-oauth-transaction-tokens claims
+   └─> Support for unsigned tokens (development/testing)
 ```
+
+### Dual Identity Model
+
+parsec supports two types of identity:
+
+1. **Subject**: The end user or principal being authorized
+   - Extracted from standard OAuth/OIDC tokens
+   - Goes into the `sub` claim of transaction tokens
+   
+2. **Actor**: The service or machine making the request
+   - Extracted from mTLS certificates or service tokens
+   - Goes into transaction context claims
+   - Used for authorization decisions (ForActor filtering)
+
+This enables patterns like "service X acting on behalf of user Y" which is critical for microservice architectures.
 
 ### Data Sources
 
@@ -277,6 +243,260 @@ parsec enforces a security boundary at the perimeter:
 
 This prevents credential leakage and establishes clear trust boundaries.
 
+## Component Interfaces
+
+parsec is built around well-defined interfaces that enable testability, flexibility, and extensibility.
+
+### trust.Validator
+
+**Purpose**: Validates external credentials and returns claims about the authenticated subject.
+
+```go
+type Validator interface {
+    // Validate validates a credential and returns the validation result
+    Validate(ctx context.Context, credential Credential) (*Result, error)
+    
+    // CredentialTypes returns the set of credential types this validator can handle
+    CredentialTypes() []CredentialType
+}
+```
+
+**Key Types**:
+```go
+type Result struct {
+    Subject     string           // Unique identifier of the authenticated subject
+    Issuer      string           // Issuer of the credential (e.g., IdP URL)
+    TrustDomain string           // Trust domain the credential belongs to
+    Claims      claims.Claims    // Additional claims from the credential
+    ExpiresAt   time.Time        // When the credential expires
+    IssuedAt    time.Time        // When the credential was issued
+    Audience    []string         // Intended audience
+    Scope       string           // OAuth2 scope
+}
+```
+
+**Implementations**:
+- `JWTValidator` - Validates JWT tokens with JWKS (production-ready)
+- `JSONValidator` - Validates unsigned JSON credentials with structured Result format
+- `StubValidator` - For testing, accepts any non-empty token
+
+### trust.Store
+
+**Purpose**: Manages trust domains and provides validators for credentials.
+
+```go
+type Store interface {
+    // Validate validates a credential, determining the appropriate validator
+    // based on the credential type and issuer
+    Validate(ctx context.Context, credential Credential) (*Result, error)
+    
+    // ForActor returns a filtered Store that only includes validators
+    // the given actor is allowed to use
+    ForActor(ctx context.Context, actor *Result, 
+             requestAttrs *request.RequestAttributes) (Store, error)
+}
+```
+
+**Key Features**:
+- Automatically routes credentials to appropriate validators
+- Supports multiple validators per credential type
+- Actor-based filtering for authorization
+- Credential type hierarchy (Bearer tokens can be JWTs)
+
+**Implementations**:
+- `StubStore` - In-memory store for testing
+- `FilteredStore` - Wraps another store with validator filtering
+
+### issuer.Issuer
+
+**Purpose**: Issues transaction tokens based on validated credentials.
+
+```go
+type Issuer interface {
+    // Issue creates a signed token from the provided context
+    Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error)
+    
+    // PublicKeys returns public keys for verifying tokens
+    PublicKeys(ctx context.Context) ([]PublicKey, error)
+}
+
+type TokenContext struct {
+    Subject            *trust.Result   // Subject identity
+    Actor              *trust.Result   // Actor identity
+    TransactionContext claims.Claims   // Goes into "tctx" claim
+    RequestContext     claims.Claims   // Goes into "req_ctx" claim
+    Audience           string          // Trust domain (aud claim)
+    Scope              string          // OAuth2 scope
+}
+```
+
+**Implementations**:
+- `StubIssuer` - Generates simple token strings for testing
+- `UnsignedIssuer` - Base64-encoded JSON tokens (development/testing)
+- TODO: `JWTIssuer` - Real JWT implementation with signing
+
+### issuer.DataSource
+
+**Purpose**: Provides additional data for token context building.
+
+```go
+type DataSource interface {
+    // Name identifies this data source
+    Name() string
+    
+    // Fetch retrieves data based on the input
+    Fetch(ctx context.Context, input *DataSourceInput) (*DataSourceResult, error)
+}
+
+type DataSourceInput struct {
+    Subject           *trust.Result
+    Actor             *trust.Result
+    RequestAttributes *request.RequestAttributes
+}
+```
+
+**Optional Interface for Caching**:
+```go
+type Cacheable interface {
+    // CacheKey returns a masked copy of input with only fields that affect result
+    CacheKey(input *DataSourceInput) DataSourceInput
+    
+    // CacheTTL returns the time-to-live for cached entries
+    CacheTTL() time.Duration
+}
+```
+
+**Implementations**:
+- `LuaDataSource` - Scriptable data sources with HTTP/JSON services
+- `InMemoryCachingDataSource` - Wraps data source with local cache
+- `DistributedCachingDataSource` - Wraps data source with distributed cache (groupcache)
+
+### issuer.ClaimMapper
+
+**Purpose**: Transforms inputs into claims for the token (policy logic).
+
+```go
+type ClaimMapper interface {
+    // Map produces claims based on the input
+    Map(ctx context.Context, input *MapperInput) (claims.Claims, error)
+}
+
+type MapperInput struct {
+    Subject            *trust.Result
+    Actor              *trust.Result
+    RequestAttributes  *request.RequestAttributes
+    DataSourceRegistry *DataSourceRegistry  // For lazy data fetching
+    DataSourceInput    *DataSourceInput
+}
+```
+
+**Implementations**:
+- `CELMapper` - Uses CEL (Common Expression Language) expressions
+- `PassthroughSubjectMapper` - Passes through subject claims
+- `RequestAttributesMapper` - Maps request attributes to claims
+- `StubMapper` - Returns fixed claims for testing
+
+**CEL Example**:
+```javascript
+{
+  "user": subject.subject,
+  "roles": datasource("user_roles").roles,
+  "region": datasource("geo").region,
+  "path": request.path
+}
+```
+
+### issuer.TokenService
+
+**Purpose**: Orchestrates the complete token issuance process.
+
+```go
+type TokenService struct {
+    trustDomain    string
+    dataSources    *DataSourceRegistry
+    claimMappers   *ClaimMapperRegistry
+    issuerRegistry Registry
+}
+
+func (ts *TokenService) IssueTokens(ctx context.Context, 
+                                     req *IssueRequest) (map[TokenType]*Token, error)
+```
+
+**Orchestration Flow**:
+1. Build data source input from request
+2. Build mapper input with lazy data source registry
+3. Apply transaction context mappers
+4. Apply request context mappers
+5. Build token context with composed claims
+6. Issue tokens for each requested type via registry
+
+## Data Flow
+
+### Token Exchange Flow
+
+```
+1. Client → POST /v1/token (RFC 8693 request)
+   - subject_token: external credential
+   - subject_token_type: token type
+   - audience: target trust domain
+                ↓
+2. ExchangeServer.Exchange()
+   - Extract subject credential from request
+   - Optionally extract actor credential (mTLS, service token)
+   - Apply actor-based filtering to trust store
+                ↓
+3. Store.Validate(subject_credential)
+   - Determine appropriate validator
+   - Validate credential (signature, expiration, claims)
+   - Return trust.Result with subject claims
+                ↓
+4. TokenService.IssueTokens()
+   - Build data source input
+   - Apply claim mappers (transaction context + request context)
+   - Mappers lazily fetch from data sources as needed
+   - Compose final TokenContext
+                ↓
+5. Issuer.Issue(TokenContext)
+   - Create token with standard + transaction claims
+   - Sign token (if applicable)
+   - Return Token with value, type, expiry
+                ↓
+6. Return TokenExchangeResponse
+   - access_token: issued token value
+   - token_type: token type
+   - expires_in: seconds until expiration
+```
+
+### ext_authz Flow
+
+```
+1. Envoy → gRPC Check(CheckRequest)
+   - Request attributes (method, path, headers, etc.)
+   - Optional mTLS peer certificate
+                ↓
+2. AuthzServer.Check()
+   - Extract subject credential from Authorization header
+   - Extract actor credential from mTLS peer certificate
+   - Apply actor-based filtering to trust store
+                ↓
+3. Store.Validate(subject_credential)
+   - Validate credential against trust domain
+   - Return trust.Result
+                ↓
+4. TokenService.IssueTokens()
+   - Enrich with data sources
+   - Apply claim mappers
+   - Build transaction context
+                ↓
+5. Issuer.Issue()
+   - Generate transaction token
+                ↓
+6. Return CheckResponse
+   - Status: OK/Denied
+   - Headers: Transaction-Token header added
+   - Headers: Original Authorization header removed
+```
+
 ## Key Design Patterns
 
 ### Interface-Driven Design
@@ -292,6 +512,7 @@ Example interfaces:
 - `issuer.Issuer` - Token issuance
 - `issuer.DataSource` - Data enrichment
 - `issuer.ClaimMapper` - Claim transformation
+- `issuer.TokenService` - Orchestration
 
 ### Registry Pattern
 
@@ -320,31 +541,126 @@ Data sources support transparent caching:
 
 ### Dependency Injection
 
-All services accept dependencies via constructors:
+All services accept dependencies via constructors, enabling explicit dependency graphs and testability:
 
 ```go
-// Create dependencies
-trustStore := trust.NewStubStore()
-dataSourceRegistry := issuer.NewDataSourceRegistry()
-claimMapperRegistry := issuer.NewClaimMapperRegistry()
-issuerRegistry := issuer.NewSimpleRegistry()
+// 1. Create validators
+jwtValidator, _ := trust.NewJWTValidator(trust.JWTValidatorConfig{
+    Issuer:      "https://idp.example.com",
+    JWKSURL:     "https://idp.example.com/.well-known/jwks.json",
+    TrustDomain: "example.com",
+})
 
-// Wire together
+// 2. Create trust store and add validators
+trustStore := trust.NewStubStore()
+trustStore.AddValidator(jwtValidator)
+
+// 3. Create data source registry
+dataSourceRegistry := issuer.NewDataSourceRegistry()
+// Register Lua data sources
+userRolesDS, _ := datasource.NewLuaDataSource("user_roles", luaScript, /* config */)
+dataSourceRegistry.Register(userRolesDS)
+
+// 4. Create claim mapper registry
+claimMapperRegistry := issuer.NewClaimMapperRegistry()
+// Register CEL mappers for transaction context
+celMapper, _ := mapper.NewCELMapper(`{
+  "user": subject.subject,
+  "roles": datasource("user_roles").roles
+}`)
+claimMapperRegistry.RegisterTransactionContext(celMapper)
+// Register request attributes mapper for request context
+claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+
+// 5. Create issuer registry
+issuerRegistry := issuer.NewSimpleRegistry()
+txnIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnIssuer)
+
+// 6. Wire together with token service
 tokenService := issuer.NewTokenService(
-    trustDomain,
+    "parsec.example.com",  // trust domain
     dataSourceRegistry,
     claimMapperRegistry,
     issuerRegistry,
 )
 
-// Inject into servers
+// 7. Create claims filter registry for actor authorization
+claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
+
+// 8. Inject into servers
 authzServer := server.NewAuthzServer(trustStore, tokenService)
-exchangeServer := server.NewExchangeServer(trustStore, tokenService)
+exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
+
+// 9. Create and start server
+srv := server.New(server.Config{
+    GRPCPort:       9090,
+    HTTPPort:       8080,
+    AuthzServer:    authzServer,
+    ExchangeServer: exchangeServer,
+})
+srv.Start(ctx)
+```
+
+This enables:
+- **Testability**: Swap real implementations with stubs/mocks
+- **Flexibility**: Change implementations without modifying consumers
+- **Clarity**: Explicit dependencies visible in function signatures
+- **Composition**: Build complex behavior from simple components
+
+## Testing Strategy
+
+parsec's interface-driven design enables comprehensive testing at multiple levels.
+
+### Unit Tests
+
+Each component can be tested in isolation:
+
+```go
+// Test validator independently
+validator := trust.NewStubValidator(trust.CredentialTypeBearer)
+result, err := validator.Validate(ctx, &trust.BearerCredential{Token: "test"})
+
+// Test issuer independently
+issuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+token, err := issuer.Issue(ctx, tokenContext)
+
+// Test claim mapper independently
+mapper, _ := mapper.NewCELMapper(`{"user": subject.subject}`)
+claims, err := mapper.Map(ctx, mapperInput)
+
+// Test data source independently
+ds := datasource.NewLuaDataSource("test", script, config)
+result, err := ds.Fetch(ctx, input)
+```
+
+### Integration Tests
+
+Wire components together with stubs for higher-level testing:
+
+```go
+// Setup
+trustStore := trust.NewStubStore()
+trustStore.AddValidator(trust.NewStubValidator(trust.CredentialTypeBearer))
+
+tokenService := issuer.NewTokenService(
+    "test.example.com",
+    issuer.NewDataSourceRegistry(),
+    issuer.NewClaimMapperRegistry(),
+    issuerRegistry,
+)
+
+// Test full flow
+authzServer := server.NewAuthzServer(trustStore, tokenService)
+response, err := authzServer.Check(ctx, envoyRequest)
+assert.Equal(t, CheckResponse_OK, response.Status.Code)
 ```
 
 ## Related Documentation
 
-- **`CONTRACTS.md`**: Detailed interface contracts and data flow
 - **`docs/CREDENTIAL_DESIGN.md`**: Credential extraction and validation patterns
 - **`internal/datasource/LUA_DATASOURCE.md`**: Lua data source guide with examples
 - **`internal/datasource/examples/`**: Example Lua scripts for common scenarios
+- **`internal/trust/VALIDATOR_FILTERING.md`**: Validator filtering and actor authorization
+- **`internal/trust/README.md`**: Trust package overview
+- **`internal/server/README.md`**: Server implementation details

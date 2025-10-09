@@ -2,8 +2,28 @@
 
 This document tracks planned work and next steps for the parsec project.
 
+## End to end
+
+- [ ] Example set up that issues tokens compatible with identity header
+
 ## Experiments
 Functionality not yet well understood or yet lacking confidence the current architecture is correct.
+
+### Testability / test fixtures / "hermetic" mode
+
+- [ ] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
+- [ ] CLI command to invoke the token service with defined fixtures and input values, in order to test claim mappers, claims filters, validator filters, etc.
+
+### HTTP configuration for data sources
+
+- [ ] Ability to define different authentication methods and have them utilized automatically rather than making the data source implementations do this
+- [ ] Other HTTP configuration like retries, timeouts
+
+### Data source reliability
+
+- [ ] Is it possible to fall back to older data, if cached, in case a data source does not respond?
+- [ ] Can we make data source fetching async so the cache is used while it is refreshed?
+- [ ] Option to set up groupcache server
 
 ### Context reuse / chaining
 Sometimes there is existing transaction context which should be used. It can either be context for a new token, or maybe the token can be reused as-is (same transaction trust domain).
@@ -11,9 +31,10 @@ Sometimes there is existing transaction context which should be used. It can eit
 ### Meta authorization
 Different callers (actors) have different privileges in terms of...
 
-- subject token types allowed (e.g. what trust domain, if unsigned is allowed)
-- what context types are allowed (again, what trust domain, if unsigned is allowed)
-- what token types they can request
+- [X] subject token types allowed (e.g. what trust domain, if unsigned is allowed). Implemented: see `FilteredStore`
+- [X] subject token claims allowed to use unsigned tokens for. Implemented: see `JSONValidator`
+- [ ] what context types are allowed (again, what trust domain, if unsigned is allowed). First requires context reuse from above.
+- [ ] what token types they can request
 
 ## Features
 Functionality with well understood expectations and relatively high confidence that it is doable within the current architecture.
