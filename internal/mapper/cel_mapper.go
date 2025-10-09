@@ -81,6 +81,8 @@ func (m *CELMapper) Map(ctx context.Context, input *issuer.MapperInput) (claims.
 
 	// Create CEL environment with the datasource registry for this invocation
 	// This provides the runtime context (datasources) without recompiling
+	// TODO: this could be at least constructed per token service invocation, rather than per source
+	// TODO: we could also make this constructed once per application, and use macros to bind convenience functions to input
 	env, err := cel.NewEnv(
 		celhelpers.MapperInputLibrary(ctx, input.DataSourceRegistry, input.DataSourceInput),
 	)
