@@ -47,10 +47,6 @@ func TestStubIssuer(t *testing.T) {
 			t.Errorf("expected txn_token type, got %s", token.Type)
 		}
 
-		if token.TransactionID == "" {
-			t.Error("expected non-empty transaction ID")
-		}
-
 		if strings.Contains(token.Value, tokenCtx.Subject.Subject) == false {
 			t.Error("expected token to contain subject")
 		}
@@ -101,7 +97,7 @@ func TestStubIssuer(t *testing.T) {
 		}
 	})
 
-	t.Run("generates unique transaction IDs", func(t *testing.T) {
+	t.Run("generates unique token values", func(t *testing.T) {
 		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 
 		tokenCtx := &TokenContext{
@@ -116,8 +112,8 @@ func TestStubIssuer(t *testing.T) {
 		time.Sleep(10 * time.Millisecond) // Ensure different timestamp
 		token2, _ := issuer.Issue(ctx, tokenCtx)
 
-		if token1.TransactionID == token2.TransactionID {
-			t.Error("expected unique transaction IDs")
+		if token1.Value == token2.Value {
+			t.Error("expected unique token values")
 		}
 	})
 }

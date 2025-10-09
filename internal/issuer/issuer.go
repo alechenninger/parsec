@@ -77,9 +77,6 @@ type Token struct {
 
 	// IssuedAt is when the token was issued
 	IssuedAt time.Time
-
-	// TransactionID is the unique transaction identifier
-	TransactionID string
 }
 
 // TokenClaims represents the claims in a transaction token

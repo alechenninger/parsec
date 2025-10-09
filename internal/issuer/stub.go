@@ -65,11 +65,10 @@ func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token,
 	}
 
 	return &Token{
-		Value:         tokenValue,
-		Type:          "urn:ietf:params:oauth:token-type:txn_token",
-		ExpiresAt:     expiresAt,
-		IssuedAt:      now,
-		TransactionID: txnID,
+		Value:     tokenValue,
+		Type:      "urn:ietf:params:oauth:token-type:txn_token",
+		ExpiresAt: expiresAt,
+		IssuedAt:  now,
 	}, nil
 }
 
