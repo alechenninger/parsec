@@ -10,15 +10,15 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 
-	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
 // TokenTypeSpec specifies a token type to issue and how to deliver it
 type TokenTypeSpec struct {
 	// Type is the token type to issue
-	Type issuer.TokenType
+	Type service.TokenType
 
 	// HeaderName is the HTTP header to use for this token
 	// e.g., "Transaction-Token", "Authorization", "X-Custom-Token"
@@ -30,7 +30,7 @@ type AuthzServer struct {
 	authv3.UnimplementedAuthorizationServer
 
 	trustStore   trust.Store
-	tokenService *issuer.TokenService
+	tokenService *service.TokenService
 
 	// TokenTypesToIssue specifies which token types to issue and their headers
 	// This could come from configuration in the future
@@ -38,7 +38,7 @@ type AuthzServer struct {
 }
 
 // NewAuthzServer creates a new ext_authz server
-func NewAuthzServer(trustStore trust.Store, tokenService *issuer.TokenService) *AuthzServer {
+func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService) *AuthzServer {
 	// Default: Issue transaction tokens
 	// In the future, this could be configured per-route, per-domain, etc.
 	return &AuthzServer{
@@ -46,7 +46,7 @@ func NewAuthzServer(trustStore trust.Store, tokenService *issuer.TokenService) *
 		tokenService: tokenService,
 		TokenTypesToIssue: []TokenTypeSpec{
 			{
-				Type:       issuer.TokenTypeTransactionToken,
+				Type:       service.TokenTypeTransactionToken,
 				HeaderName: "Transaction-Token",
 			},
 		},
@@ -99,12 +99,12 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 	}
 
 	// 6. Issue tokens via TokenService
-	tokenTypes := make([]issuer.TokenType, len(s.TokenTypesToIssue))
+	tokenTypes := make([]service.TokenType, len(s.TokenTypesToIssue))
 	for i, spec := range s.TokenTypesToIssue {
 		tokenTypes[i] = spec.Type
 	}
 
-	issuedTokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
+	issuedTokens, err := s.tokenService.IssueTokens(ctx, &service.IssueRequest{
 		Subject:           result,
 		Actor:             actor,
 		RequestAttributes: reqAttrs,

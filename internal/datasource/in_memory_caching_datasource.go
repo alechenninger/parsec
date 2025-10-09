@@ -8,28 +8,28 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 )
 
 // InMemoryCachingDataSource wraps a cacheable data source with simple in-memory caching
 // It implements issuer.DataSource but not Cacheable (it does the caching itself)
 type InMemoryCachingDataSource struct {
-	source    issuer.DataSource
-	cacheable issuer.Cacheable
+	source    service.DataSource
+	cacheable service.Cacheable
 	mu        sync.RWMutex
 	entries   map[string]*cacheEntry
 }
 
 // cacheEntry stores cached data with expiration
 type cacheEntry struct {
-	result    *issuer.DataSourceResult
+	result    *service.DataSourceResult
 	expiresAt time.Time
 }
 
 // NewInMemoryCachingDataSource wraps a data source with in-memory caching if it implements Cacheable
 // Returns the original source if it doesn't implement Cacheable
-func NewInMemoryCachingDataSource(source issuer.DataSource) issuer.DataSource {
-	cacheable, ok := source.(issuer.Cacheable)
+func NewInMemoryCachingDataSource(source service.DataSource) service.DataSource {
+	cacheable, ok := source.(service.Cacheable)
 	if !ok {
 		// Source is not cacheable, return as-is
 		return source
@@ -48,7 +48,7 @@ func (c *InMemoryCachingDataSource) Name() string {
 }
 
 // Fetch checks the cache first, then fetches from source on miss
-func (c *InMemoryCachingDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (c *InMemoryCachingDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	// Get the cache key (which is the masked input with only relevant fields)
 	maskedInput := c.cacheable.CacheKey(input)
 
@@ -123,7 +123,7 @@ func (c *InMemoryCachingDataSource) Size() int {
 
 // serializeInput serializes a masked DataSourceInput into a cache key string
 // This creates a deterministic string representation of the input
-func serializeInput(input *issuer.DataSourceInput) (string, error) {
+func serializeInput(input *service.DataSourceInput) (string, error) {
 	// Serialize to JSON for deterministic ordering
 	keyBytes, err := json.Marshal(input)
 	if err != nil {

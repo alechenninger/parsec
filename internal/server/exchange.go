@@ -8,8 +8,8 @@ import (
 
 	parsecv1 "github.com/alechenninger/parsec/api/gen/parsec/v1"
 	"github.com/alechenninger/parsec/internal/claims"
-	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -18,12 +18,12 @@ type ExchangeServer struct {
 	parsecv1.UnimplementedTokenExchangeServer
 
 	trustStore           trust.Store
-	tokenService         *issuer.TokenService
+	tokenService         *service.TokenService
 	claimsFilterRegistry ClaimsFilterRegistry
 }
 
 // NewExchangeServer creates a new token exchange server
-func NewExchangeServer(trustStore trust.Store, tokenService *issuer.TokenService, claimsFilterRegistry ClaimsFilterRegistry) *ExchangeServer {
+func NewExchangeServer(trustStore trust.Store, tokenService *service.TokenService, claimsFilterRegistry ClaimsFilterRegistry) *ExchangeServer {
 	return &ExchangeServer{
 		trustStore:           trustStore,
 		tokenService:         tokenService,
@@ -120,9 +120,9 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 	// 6. Determine which token type to issue
 	// RFC 8693: If requested_token_type is not specified, default to access_token
 	// For parsec, we default to transaction tokens
-	requestedTokenType := issuer.TokenTypeTransactionToken
+	requestedTokenType := service.TokenTypeTransactionToken
 	if req.RequestedTokenType != "" {
-		requestedTokenType = issuer.TokenType(req.RequestedTokenType)
+		requestedTokenType = service.TokenType(req.RequestedTokenType)
 	}
 
 	// 7. Validate audience matches trust domain (per transaction token spec)
@@ -133,11 +133,11 @@ func (s *ExchangeServer) Exchange(ctx context.Context, req *parsecv1.TokenExchan
 	}
 
 	// 8. Issue the token via TokenService
-	tokens, err := s.tokenService.IssueTokens(ctx, &issuer.IssueRequest{
+	tokens, err := s.tokenService.IssueTokens(ctx, &service.IssueRequest{
 		Subject:           result,
 		Actor:             actor,
 		RequestAttributes: reqAttrs,
-		TokenTypes:        []issuer.TokenType{requestedTokenType},
+		TokenTypes:        []service.TokenType{requestedTokenType},
 		Scope:             req.Scope,
 	})
 	if err != nil {

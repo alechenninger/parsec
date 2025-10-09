@@ -7,9 +7,9 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -112,7 +112,7 @@ func (ds *LuaDataSource) Name() string {
 }
 
 // Fetch executes the Lua script to fetch data
-func (ds *LuaDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (ds *LuaDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	// Create a new Lua state for this request
 	L := lua.NewState()
 	defer L.Close()
@@ -164,7 +164,7 @@ func (ds *LuaDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInpu
 }
 
 // inputToLuaTable converts a DataSourceInput to a Lua table
-func (ds *LuaDataSource) inputToLuaTable(L *lua.LState, input *issuer.DataSourceInput) *lua.LTable {
+func (ds *LuaDataSource) inputToLuaTable(L *lua.LState, input *service.DataSourceInput) *lua.LTable {
 	tbl := L.NewTable()
 
 	if input.Subject != nil {
@@ -237,7 +237,7 @@ func (ds *LuaDataSource) inputToLuaTable(L *lua.LState, input *issuer.DataSource
 }
 
 // luaTableToResult converts a Lua table to a DataSourceResult
-func (ds *LuaDataSource) luaTableToResult(tbl *lua.LTable) (*issuer.DataSourceResult, error) {
+func (ds *LuaDataSource) luaTableToResult(tbl *lua.LTable) (*service.DataSourceResult, error) {
 	dataField := tbl.RawGetString("data")
 	if dataField.Type() == lua.LTNil {
 		return nil, fmt.Errorf("result table must have a 'data' field")
@@ -252,20 +252,20 @@ func (ds *LuaDataSource) luaTableToResult(tbl *lua.LTable) (*issuer.DataSourceRe
 	}
 
 	contentTypeField := tbl.RawGetString("content_type")
-	contentType := issuer.ContentTypeJSON // default
+	contentType := service.ContentTypeJSON // default
 	if contentTypeField.Type() == lua.LTString {
-		contentType = issuer.DataSourceContentType(lua.LVAsString(contentTypeField))
+		contentType = service.DataSourceContentType(lua.LVAsString(contentTypeField))
 	}
 
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        data,
 		ContentType: contentType,
 	}, nil
 }
 
 // luaTableToInput converts a Lua table to a DataSourceInput
-func (ds *LuaDataSource) luaTableToInput(tbl *lua.LTable) issuer.DataSourceInput {
-	input := issuer.DataSourceInput{}
+func (ds *LuaDataSource) luaTableToInput(tbl *lua.LTable) service.DataSourceInput {
+	input := service.DataSourceInput{}
 
 	// Parse subject
 	if subjectLV := tbl.RawGetString("subject"); subjectLV.Type() == lua.LTTable {
@@ -430,7 +430,7 @@ func NewCacheableLuaDataSource(config CacheableLuaDataSourceConfig) (*CacheableL
 }
 
 // CacheKey implements the Cacheable interface
-func (ds *CacheableLuaDataSource) CacheKey(input *issuer.DataSourceInput) issuer.DataSourceInput {
+func (ds *CacheableLuaDataSource) CacheKey(input *service.DataSourceInput) service.DataSourceInput {
 	// Create a new Lua state
 	L := lua.NewState()
 	defer L.Close()

@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -73,7 +73,7 @@ end
 
 	// Test fetch
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "alice",
 		},
@@ -161,7 +161,7 @@ end
 
 	// Test fetch
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -230,7 +230,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}

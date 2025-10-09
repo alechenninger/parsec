@@ -8,13 +8,13 @@ import (
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 
-	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 )
 
 // DataSourceRegistry is the interface for accessing data sources
 // This matches the issuer.DataSourceRegistry interface
 type DataSourceRegistry interface {
-	Get(name string) issuer.DataSource
+	Get(name string) service.DataSource
 }
 
 // MapperInputLibrary creates a CEL library with custom functions for accessing mapper input data.
@@ -24,7 +24,7 @@ type DataSourceRegistry interface {
 //   - subject, actor, request - variables containing identity and request data
 //
 // Pass nil for registry to create a test/validation environment.
-func MapperInputLibrary(ctx context.Context, registry *issuer.DataSourceRegistry, dsInput *issuer.DataSourceInput) cel.EnvOption {
+func MapperInputLibrary(ctx context.Context, registry *service.DataSourceRegistry, dsInput *service.DataSourceInput) cel.EnvOption {
 	return cel.Lib(&mapperInputLib{
 		ctx:      ctx,
 		registry: registry,
@@ -35,8 +35,8 @@ func MapperInputLibrary(ctx context.Context, registry *issuer.DataSourceRegistry
 
 type mapperInputLib struct {
 	ctx      context.Context
-	registry *issuer.DataSourceRegistry
-	dsInput  *issuer.DataSourceInput
+	registry *service.DataSourceRegistry
+	dsInput  *service.DataSourceInput
 	cache    map[string]any
 }
 
@@ -97,7 +97,7 @@ func (lib *mapperInputLib) fetchDatasource(arg ref.Val) ref.Val {
 
 	// Deserialize based on content type
 	switch result.ContentType {
-	case issuer.ContentTypeJSON:
+	case service.ContentTypeJSON:
 		var data any
 		if err := json.Unmarshal(result.Data, &data); err != nil {
 			// Return error as CEL error

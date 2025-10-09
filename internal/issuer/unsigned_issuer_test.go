@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -23,7 +24,7 @@ func TestUnsignedIssuer_Issue(t *testing.T) {
 		"level":       5,
 	}
 
-	tokenCtx := &TokenContext{
+	tokenCtx := &service.TokenContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},
@@ -98,7 +99,7 @@ func TestUnsignedIssuer_Issue(t *testing.T) {
 func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
 	issuer := NewUnsignedIssuer("test-token-type")
 
-	tokenCtx := &TokenContext{
+	tokenCtx := &service.TokenContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},
@@ -133,7 +134,7 @@ func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
 func TestUnsignedIssuer_Issue_NilTransactionContext(t *testing.T) {
 	issuer := NewUnsignedIssuer("test-token-type")
 
-	tokenCtx := &TokenContext{
+	tokenCtx := &service.TokenContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},

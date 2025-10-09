@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -21,17 +21,17 @@ func (m *mockCacheableDataSource) Name() string {
 	return m.name
 }
 
-func (m *mockCacheableDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (m *mockCacheableDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	m.fetchCount++
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        []byte(fmt.Sprintf(`{"fetch_count":%d}`, m.fetchCount)),
-		ContentType: issuer.ContentTypeJSON,
+		ContentType: service.ContentTypeJSON,
 	}, nil
 }
 
-func (m *mockCacheableDataSource) CacheKey(input *issuer.DataSourceInput) issuer.DataSourceInput {
+func (m *mockCacheableDataSource) CacheKey(input *service.DataSourceInput) service.DataSourceInput {
 	// Only cache by subject
-	masked := issuer.DataSourceInput{}
+	masked := service.DataSourceInput{}
 	if input.Subject != nil {
 		masked.Subject = &trust.Result{
 			Subject: input.Subject.Subject,
@@ -54,11 +54,11 @@ func (m *mockNonCacheableDataSource) Name() string {
 	return m.name
 }
 
-func (m *mockNonCacheableDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (m *mockNonCacheableDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	m.fetchCount++
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        []byte(fmt.Sprintf(`{"fetch_count":%d}`, m.fetchCount)),
-		ContentType: issuer.ContentTypeJSON,
+		ContentType: service.ContentTypeJSON,
 	}, nil
 }
 
@@ -73,7 +73,7 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 
 		cached := NewInMemoryCachingDataSource(source)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -112,7 +112,7 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 
 		cached := NewInMemoryCachingDataSource(source)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -148,13 +148,13 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 
 		cached := NewInMemoryCachingDataSource(source)
 
-		input1 := &issuer.DataSourceInput{
+		input1 := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user1@example.com",
 			},
 		}
 
-		input2 := &issuer.DataSourceInput{
+		input2 := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user2@example.com", // Different subject
 			},
@@ -199,7 +199,7 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 
 		cached := NewInMemoryCachingDataSource(source).(*InMemoryCachingDataSource)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},

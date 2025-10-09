@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/httpfixture"
-	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -60,7 +60,7 @@ end
 
 	// Test with alice
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "alice",
 		},
@@ -143,7 +143,7 @@ end
 	}
 
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "dynamicuser",
 		},
@@ -233,7 +233,7 @@ end
 	ctx := context.Background()
 
 	// Test exact match (alice)
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{Subject: "alice"},
 	}
 
@@ -321,7 +321,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -369,7 +369,7 @@ end
 	// This test actually makes a real HTTP call
 	// In a real test suite, you'd want to use fixtures for all tests
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 
 	// We expect this to work, but handle potential network errors gracefully
 	if err != nil {
@@ -439,7 +439,7 @@ end
 	}
 
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{Subject: "alice"},
 	}
 

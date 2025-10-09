@@ -12,28 +12,29 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
 // setupTestDependencies creates stub implementations for testing
-func setupTestDependencies() (trust.Store, *issuer.TokenService) {
+func setupTestDependencies() (trust.Store, *service.TokenService) {
 	trustStore := trust.NewStubStore()
 
 	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
 	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	return trustStore, tokenService
 }

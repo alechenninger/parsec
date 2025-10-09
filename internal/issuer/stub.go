@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/alechenninger/parsec/internal/service"
 )
 
 // StubIssuer is a simple stub issuer for testing
@@ -15,7 +17,7 @@ type StubIssuer struct {
 	includeRequestContext bool
 }
 
-// StubIssuerOption is a functional option for configuring a StubIssuer
+// StubIssuerOption is a functional option“ for configuring a StubIssuer
 type StubIssuerOption func(*StubIssuer)
 
 // WithIncludeRequestContext configures the stub issuer to include request context in the token
@@ -39,7 +41,7 @@ func NewStubIssuer(issuerURL string, ttl time.Duration, opts ...StubIssuerOption
 }
 
 // Issue implements the Issuer interface
-func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error) {
+func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *service.TokenContext) (*service.Token, error) {
 	now := time.Now()
 	expiresAt := now.Add(i.ttl)
 
@@ -64,7 +66,7 @@ func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token,
 		tokenValue = fmt.Sprintf("stub-txn-token.%s.%s", subject, txnID)
 	}
 
-	return &Token{
+	return &service.Token{
 		Value:     tokenValue,
 		Type:      "urn:ietf:params:oauth:token-type:txn_token",
 		ExpiresAt: expiresAt,
@@ -74,7 +76,7 @@ func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token,
 
 // PublicKeys implements the Issuer interface
 // Stub issuer returns an empty slice since it doesn't sign tokens
-func (i *StubIssuer) PublicKeys(ctx context.Context) ([]PublicKey, error) {
+func (i *StubIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
 	// Return empty slice for unsigned stub tokens
-	return []PublicKey{}, nil
+	return []service.PublicKey{}, nil
 }

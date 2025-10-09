@@ -9,14 +9,14 @@ import (
 
 	"github.com/golang/groupcache"
 
-	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 )
 
 // DistributedCachingDataSource wraps a cacheable data source with groupcache
 // for distributed caching across multiple servers
 type DistributedCachingDataSource struct {
-	source    issuer.DataSource
-	cacheable issuer.Cacheable
+	source    service.DataSource
+	cacheable service.Cacheable
 	group     *groupcache.Group
 }
 
@@ -36,8 +36,8 @@ type DistributedCachingConfig struct {
 //
 // Note: groupcache requires that you set up the peer pool before creating caching data sources
 // See groupcache documentation for details on setting up peers
-func NewDistributedCachingDataSource(source issuer.DataSource, config DistributedCachingConfig) issuer.DataSource {
-	cacheable, ok := source.(issuer.Cacheable)
+func NewDistributedCachingDataSource(source service.DataSource, config DistributedCachingConfig) service.DataSource {
+	cacheable, ok := source.(service.Cacheable)
 	if !ok {
 		// Source is not cacheable, return as-is
 		return source
@@ -105,8 +105,8 @@ func NewDistributedCachingDataSource(source issuer.DataSource, config Distribute
 
 // cachedEntry wraps the data and content type for storage in cache
 type cachedEntry struct {
-	Data        []byte                       `json:"data"`
-	ContentType issuer.DataSourceContentType `json:"content_type"`
+	Data        []byte                        `json:"data"`
+	ContentType service.DataSourceContentType `json:"content_type"`
 }
 
 // Name forwards to the underlying data source
@@ -115,7 +115,7 @@ func (c *DistributedCachingDataSource) Name() string {
 }
 
 // Fetch checks the distributed cache first, then fetches from source on miss
-func (c *DistributedCachingDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (c *DistributedCachingDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	// Get the cache key (which is the masked input with only relevant fields)
 	maskedInput := c.cacheable.CacheKey(input)
 
@@ -149,7 +149,7 @@ func (c *DistributedCachingDataSource) Fetch(ctx context.Context, input *issuer.
 		return nil, fmt.Errorf("failed to unmarshal cached entry: %w", err)
 	}
 
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        entry.Data,
 		ContentType: entry.ContentType,
 	}, nil
@@ -183,7 +183,7 @@ func stripTTLSuffix(key string) string {
 
 // SerializeInputToJSON serializes a DataSourceInput to JSON (reversible)
 // This is used for distributed caching where the key must be deserializable
-func SerializeInputToJSON(input *issuer.DataSourceInput) (string, error) {
+func SerializeInputToJSON(input *service.DataSourceInput) (string, error) {
 	jsonBytes, err := json.Marshal(input)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal input to JSON: %w", err)
@@ -193,8 +193,8 @@ func SerializeInputToJSON(input *issuer.DataSourceInput) (string, error) {
 
 // DeserializeInputFromJSON deserializes a JSON cache key back into a DataSourceInput
 // This is used by groupcache when fetching on a remote server
-func DeserializeInputFromJSON(key string) (*issuer.DataSourceInput, error) {
-	var input issuer.DataSourceInput
+func DeserializeInputFromJSON(key string) (*service.DataSourceInput, error) {
+	var input service.DataSourceInput
 	if err := json.Unmarshal([]byte(key), &input); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to input: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -24,17 +25,17 @@ func TestAuthzServer_Check(t *testing.T) {
 	trustStore.AddValidator(stubValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(trustStore, tokenService)
 
@@ -399,17 +400,17 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 	filteredStore.AddValidator("internal-validator", internalValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(filteredStore, tokenService)
 
@@ -612,17 +613,17 @@ func TestAuthzServer_WithActorFilteringByRequestPath(t *testing.T) {
 	filteredStore.AddValidator("user-validator", userValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(filteredStore, tokenService)
 

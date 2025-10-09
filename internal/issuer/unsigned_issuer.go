@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/alechenninger/parsec/internal/service"
 )
 
 var never = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
@@ -25,7 +27,7 @@ func NewUnsignedIssuer(tokenType string) *UnsignedIssuer {
 
 // Issue implements the Issuer interface
 // Returns a token containing base64-encoded JSON of the transaction context claims
-func (i *UnsignedIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error) {
+func (i *UnsignedIssuer) Issue(ctx context.Context, tokenCtx *service.TokenContext) (*service.Token, error) {
 	// Serialize transaction context claims to JSON
 	claimsJSON, err := json.Marshal(tokenCtx.TransactionContext)
 	if err != nil {
@@ -39,7 +41,7 @@ func (i *UnsignedIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*To
 	// Year 9999 is effectively "never" for practical purposes
 	neverExpires := never
 
-	return &Token{
+	return &service.Token{
 		Value:     encodedToken,
 		Type:      i.tokenType,
 		ExpiresAt: neverExpires,
@@ -49,6 +51,6 @@ func (i *UnsignedIssuer) Issue(ctx context.Context, tokenCtx *TokenContext) (*To
 
 // PublicKeys implements the Issuer interface
 // Unsigned issuer returns an empty slice since tokens are not signed
-func (i *UnsignedIssuer) PublicKeys(ctx context.Context) ([]PublicKey, error) {
-	return []PublicKey{}, nil
+func (i *UnsignedIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
+	return []service.PublicKey{}, nil
 }

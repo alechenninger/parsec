@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/issuer"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -122,7 +122,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -135,8 +135,8 @@ end
 		t.Errorf("result.Data = %q, want %q", string(result.Data), `{"result": "success"}`)
 	}
 
-	if result.ContentType != issuer.ContentTypeJSON {
-		t.Errorf("result.ContentType = %q, want %q", result.ContentType, issuer.ContentTypeJSON)
+	if result.ContentType != service.ContentTypeJSON {
+		t.Errorf("result.ContentType = %q, want %q", result.ContentType, service.ContentTypeJSON)
 	}
 }
 
@@ -156,7 +156,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -188,7 +188,7 @@ end
 	}
 
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user@example.com",
 			Issuer:  "https://idp.example.com",
@@ -242,7 +242,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -298,7 +298,7 @@ end
 	}
 
 	ctx := context.Background()
-	result, err := ds.Fetch(ctx, &issuer.DataSourceInput{})
+	result, err := ds.Fetch(ctx, &service.DataSourceInput{})
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -366,7 +366,7 @@ end
 	}
 
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "alice",
 		},
@@ -477,7 +477,7 @@ end
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "user@example.com",
 			Issuer:  "https://idp.example.com",
@@ -612,7 +612,7 @@ end
 			}
 
 			ctx := context.Background()
-			_, err = ds.Fetch(ctx, &issuer.DataSourceInput{})
+			_, err = ds.Fetch(ctx, &service.DataSourceInput{})
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.errMsg)
@@ -694,7 +694,7 @@ end
 
 	// Test Fetch
 	ctx := context.Background()
-	input := &issuer.DataSourceInput{
+	input := &service.DataSourceInput{
 		Subject: &trust.Result{
 			Subject: "alice",
 			Issuer:  "https://idp.example.com",

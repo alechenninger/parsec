@@ -8,7 +8,7 @@ import (
 
 	celhelpers "github.com/alechenninger/parsec/internal/cel"
 	"github.com/alechenninger/parsec/internal/claims"
-	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -74,7 +74,7 @@ func NewCELMapper(script string) (*CELMapper, error) {
 }
 
 // Map evaluates the CEL expression and returns the resulting claims
-func (m *CELMapper) Map(ctx context.Context, input *issuer.MapperInput) (claims.Claims, error) {
+func (m *CELMapper) Map(ctx context.Context, input *service.MapperInput) (claims.Claims, error) {
 	if input == nil {
 		return nil, fmt.Errorf("mapper input cannot be nil")
 	}
@@ -127,7 +127,7 @@ func (m *CELMapper) Script() string {
 }
 
 // createActivation creates a CEL activation with variables
-func (m *CELMapper) createActivation(ctx context.Context, input *issuer.MapperInput) map[string]any {
+func (m *CELMapper) createActivation(ctx context.Context, input *service.MapperInput) map[string]any {
 	activation := map[string]any{
 		// subject, actor, and request are provided as direct values
 		// Access them in CEL as: subject.field, actor.field, request.field

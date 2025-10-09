@@ -111,15 +111,18 @@ parsec/
 │   │   ├── cel_validator_filter.go  # CEL-based validator filtering
 │   │   └── stub.go              # Stub implementations for testing
 │   │
-│   ├── issuer/                  # Token issuance orchestration
-│   │   ├── issuer.go            # Issuer interface and TokenContext
+│   ├── service/                 # Token issuance orchestration
 │   │   ├── service.go           # TokenService orchestrates issuance
+│   │   ├── issuer.go            # Issuer interface and TokenContext
 │   │   ├── registry.go          # Registry for managing issuers
 │   │   ├── mapper.go            # ClaimMapper interface
 │   │   ├── datasource.go        # DataSource interface for enrichment
-│   │   ├── unsigned_issuer.go   # Unsigned token issuer
-│   │   ├── stub.go              # Stub implementations for testing
+│   │   ├── stub_mapper.go       # Stub mapper for testing
 │   │   └── types.go             # TokenType definitions
+│   │
+│   ├── issuer/                  # Token issuer implementations
+│   │   ├── unsigned_issuer.go   # Unsigned token issuer
+│   │   └── stub.go              # Stub issuer for testing
 │   │
 │   ├── mapper/                  # Claim mapper implementations
 │   │   └── cel_mapper.go        # CEL-based claim mapping
@@ -188,19 +191,19 @@ parsec uses a layered architecture for token issuance:
    └─> Trust store determines appropriate validator based on credential type
    └─> Optional actor-based filtering (ForActor method)
 
-3. Data Enrichment (issuer.DataSource)
+3. Data Enrichment (service.DataSource)
    └─> Fetch additional context from external sources
    └─> Lua-scriptable with HTTP/JSON services
    └─> In-memory and distributed caching
    └─> Lazy evaluation during claim mapping
 
-4. Claim Mapping (issuer.ClaimMapper)
+4. Claim Mapping (service.ClaimMapper)
    └─> Build transaction context (tctx) and request context (req_ctx)
    └─> CEL expressions for flexible policy logic
    └─> Access to subject, actor, request, and data sources
    └─> Multiple mappers compose to build final claims
 
-5. Token Issuance (issuer.Issuer)
+5. Token Issuance (service.Issuer)
    └─> Sign and mint transaction tokens
    └─> JWT with draft-ietf-oauth-transaction-tokens claims
    └─> Support for unsigned tokens (development/testing)
@@ -307,7 +310,7 @@ type Store interface {
 - `StubStore` - In-memory store for testing
 - `FilteredStore` - Wraps another store with validator filtering
 
-### issuer.Issuer
+### service.Issuer
 
 **Purpose**: Issues transaction tokens based on validated credentials.
 
@@ -330,12 +333,12 @@ type TokenContext struct {
 }
 ```
 
-**Implementations**:
-- `StubIssuer` - Generates simple token strings for testing
-- `UnsignedIssuer` - Base64-encoded JSON tokens (development/testing)
-- TODO: `JWTIssuer` - Real JWT implementation with signing
+**Implementations** (in `internal/issuer/`):
+- `issuer.StubIssuer` - Generates simple token strings for testing
+- `issuer.UnsignedIssuer` - Base64-encoded JSON tokens (development/testing)
+- TODO: `issuer.JWTIssuer` - Real JWT implementation with signing
 
-### issuer.DataSource
+### service.DataSource
 
 **Purpose**: Provides additional data for token context building.
 
@@ -366,12 +369,12 @@ type Cacheable interface {
 }
 ```
 
-**Implementations**:
-- `LuaDataSource` - Scriptable data sources with HTTP/JSON services
-- `InMemoryCachingDataSource` - Wraps data source with local cache
-- `DistributedCachingDataSource` - Wraps data source with distributed cache (groupcache)
+**Implementations** (in `internal/datasource/`):
+- `datasource.LuaDataSource` - Scriptable data sources with HTTP/JSON services
+- `datasource.InMemoryCachingDataSource` - Wraps data source with local cache
+- `datasource.DistributedCachingDataSource` - Wraps data source with distributed cache (groupcache)
 
-### issuer.ClaimMapper
+### service.ClaimMapper
 
 **Purpose**: Transforms inputs into claims for the token (policy logic).
 
@@ -390,11 +393,11 @@ type MapperInput struct {
 }
 ```
 
-**Implementations**:
-- `CELMapper` - Uses CEL (Common Expression Language) expressions
-- `PassthroughSubjectMapper` - Passes through subject claims
-- `RequestAttributesMapper` - Maps request attributes to claims
-- `StubMapper` - Returns fixed claims for testing
+**Implementations** (in `internal/mapper/` and `internal/service/`):
+- `mapper.CELMapper` - Uses CEL (Common Expression Language) expressions
+- `service.PassthroughSubjectMapper` - Passes through subject claims
+- `service.RequestAttributesMapper` - Maps request attributes to claims
+- `service.StubMapper` - Returns fixed claims for testing
 
 **CEL Example**:
 ```javascript
@@ -406,7 +409,7 @@ type MapperInput struct {
 }
 ```
 
-### issuer.TokenService
+### service.TokenService
 
 **Purpose**: Orchestrates the complete token issuance process.
 
@@ -509,17 +512,17 @@ All major components are defined by interfaces, enabling:
 Example interfaces:
 - `trust.Validator` - Credential validation
 - `trust.Store` - Trust domain management
-- `issuer.Issuer` - Token issuance
-- `issuer.DataSource` - Data enrichment
-- `issuer.ClaimMapper` - Claim transformation
-- `issuer.TokenService` - Orchestration
+- `service.Issuer` - Token issuance
+- `service.DataSource` - Data enrichment
+- `service.ClaimMapper` - Claim transformation
+- `service.TokenService` - Orchestration
 
 ### Registry Pattern
 
 Multiple implementations are managed via registries:
-- **`issuer.Registry`**: Maps token types to issuers
-- **`issuer.DataSourceRegistry`**: Named data sources
-- **`issuer.ClaimMapperRegistry`**: Transaction/request context mappers
+- **`service.Registry`**: Maps token types to issuers
+- **`service.DataSourceRegistry`**: Named data sources
+- **`service.ClaimMapperRegistry`**: Transaction/request context mappers
 
 This enables dynamic configuration of token issuance behavior.
 
@@ -556,13 +559,13 @@ trustStore := trust.NewStubStore()
 trustStore.AddValidator(jwtValidator)
 
 // 3. Create data source registry
-dataSourceRegistry := issuer.NewDataSourceRegistry()
+dataSourceRegistry := service.NewDataSourceRegistry()
 // Register Lua data sources
 userRolesDS, _ := datasource.NewLuaDataSource("user_roles", luaScript, /* config */)
 dataSourceRegistry.Register(userRolesDS)
 
 // 4. Create claim mapper registry
-claimMapperRegistry := issuer.NewClaimMapperRegistry()
+claimMapperRegistry := service.NewClaimMapperRegistry()
 // Register CEL mappers for transaction context
 celMapper, _ := mapper.NewCELMapper(`{
   "user": subject.subject,
@@ -570,15 +573,15 @@ celMapper, _ := mapper.NewCELMapper(`{
 }`)
 claimMapperRegistry.RegisterTransactionContext(celMapper)
 // Register request attributes mapper for request context
-claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 // 5. Create issuer registry
-issuerRegistry := issuer.NewSimpleRegistry()
+issuerRegistry := service.NewSimpleRegistry()
 txnIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
-issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnIssuer)
+issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 // 6. Wire together with token service
-tokenService := issuer.NewTokenService(
+tokenService := service.NewTokenService(
     "parsec.example.com",  // trust domain
     dataSourceRegistry,
     claimMapperRegistry,
@@ -622,8 +625,8 @@ validator := trust.NewStubValidator(trust.CredentialTypeBearer)
 result, err := validator.Validate(ctx, &trust.BearerCredential{Token: "test"})
 
 // Test issuer independently
-issuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-token, err := issuer.Issue(ctx, tokenContext)
+iss := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+token, err := iss.Issue(ctx, tokenContext)
 
 // Test claim mapper independently
 mapper, _ := mapper.NewCELMapper(`{"user": subject.subject}`)
@@ -643,10 +646,10 @@ Wire components together with stubs for higher-level testing:
 trustStore := trust.NewStubStore()
 trustStore.AddValidator(trust.NewStubValidator(trust.CredentialTypeBearer))
 
-tokenService := issuer.NewTokenService(
+tokenService := service.NewTokenService(
     "test.example.com",
-    issuer.NewDataSourceRegistry(),
-    issuer.NewClaimMapperRegistry(),
+    service.NewDataSourceRegistry(),
+    service.NewClaimMapperRegistry(),
     issuerRegistry,
 )
 
@@ -664,3 +667,4 @@ assert.Equal(t, CheckResponse_OK, response.Status.Code)
 - **`internal/trust/VALIDATOR_FILTERING.md`**: Validator filtering and actor authorization
 - **`internal/trust/README.md`**: Trust package overview
 - **`internal/server/README.md`**: Server implementation details
+- **`internal/service/README.md`**: Service package overview

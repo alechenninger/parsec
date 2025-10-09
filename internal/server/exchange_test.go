@@ -15,6 +15,7 @@ import (
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/mapper"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -47,17 +48,17 @@ func TestExchangeServer_WithActorFiltering(t *testing.T) {
 	filteredStore.AddValidator("internal-validator", internalValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(filteredStore, tokenService, claimsFilterRegistry)
@@ -278,16 +279,16 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 	filteredStore.AddValidator("dev-validator", devValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	// Use a custom trust domain for this test
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	prodIssuer := issuer.NewStubIssuer("https://prod.example.com", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, prodIssuer)
-	tokenService := issuer.NewTokenService("prod.example.com", dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, prodIssuer)
+	tokenService := service.NewTokenService("prod.example.com", dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(filteredStore, tokenService, claimsFilterRegistry)
@@ -310,10 +311,10 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 	})
 
 	// Use a different token service for dev with matching trust domain
-	devIssuerRegistry := issuer.NewSimpleRegistry()
+	devIssuerRegistry := service.NewSimpleRegistry()
 	devIssuer := issuer.NewStubIssuer("https://dev.example.com", 5*time.Minute)
-	devIssuerRegistry.Register(issuer.TokenTypeTransactionToken, devIssuer)
-	devTokenService := issuer.NewTokenService("dev.example.com", dataSourceRegistry, claimMapperRegistry, devIssuerRegistry)
+	devIssuerRegistry.Register(service.TokenTypeTransactionToken, devIssuer)
+	devTokenService := service.NewTokenService("dev.example.com", dataSourceRegistry, claimMapperRegistry, devIssuerRegistry)
 	devExchangeServer := NewExchangeServer(filteredStore, devTokenService, claimsFilterRegistry)
 
 	t.Run("dev audience allows dev validator", func(t *testing.T) {
@@ -336,10 +337,10 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 	t.Run("wrong audience denies access", func(t *testing.T) {
 		// Use prod trust domain but request a different audience
 		// This will fail the audience check
-		wrongIssuerRegistry := issuer.NewSimpleRegistry()
+		wrongIssuerRegistry := service.NewSimpleRegistry()
 		wrongIssuer := issuer.NewStubIssuer("https://wrong.example.com", 5*time.Minute)
-		wrongIssuerRegistry.Register(issuer.TokenTypeTransactionToken, wrongIssuer)
-		wrongTokenService := issuer.NewTokenService("wrong.example.com", dataSourceRegistry, claimMapperRegistry, wrongIssuerRegistry)
+		wrongIssuerRegistry.Register(service.TokenTypeTransactionToken, wrongIssuer)
+		wrongTokenService := service.NewTokenService("wrong.example.com", dataSourceRegistry, claimMapperRegistry, wrongIssuerRegistry)
 		wrongExchangeServer := NewExchangeServer(filteredStore, wrongTokenService, claimsFilterRegistry)
 
 		req := &parsecv1.TokenExchangeRequest{
@@ -384,8 +385,8 @@ func TestExchangeServer_ActorPassedToTokenIssuance(t *testing.T) {
 	store.AddValidator(subjectValidator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
 
 	// Add a mapper that includes actor information
 	actorMapper, err := mapper.NewCELMapper(`actor != null ? {"actor_subject": actor.subject, "actor_trust_domain": actor.trust_domain} : {}`)
@@ -393,14 +394,14 @@ func TestExchangeServer_ActorPassedToTokenIssuance(t *testing.T) {
 		t.Fatalf("failed to create actor mapper: %v", err)
 	}
 	claimMapperRegistry.RegisterTransactionContext(actorMapper)
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(store, tokenService, claimsFilterRegistry)
@@ -447,28 +448,28 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 	store.AddValidator(validator)
 
 	// Setup token service
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	dataSourceRegistry := service.NewDataSourceRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	t.Run("passthrough filter allows all claims", func(t *testing.T) {
 		// Setup token service with stub issuer that includes request context in token
-		localClaimMapperRegistry := issuer.NewClaimMapperRegistry()
-		localClaimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-		localClaimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+		localClaimMapperRegistry := service.NewClaimMapperRegistry()
+		localClaimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+		localClaimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-		localIssuerRegistry := issuer.NewSimpleRegistry()
+		localIssuerRegistry := service.NewSimpleRegistry()
 		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, issuer.WithIncludeRequestContext(true))
-		localIssuerRegistry.Register(issuer.TokenTypeTransactionToken, localTxnTokenIssuer)
-		localTokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
+		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
+		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
 
 		// Use passthrough filter that allows all claims
 		claimsFilterRegistry := NewStubClaimsFilterRegistry()
@@ -527,14 +528,14 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 
 	t.Run("allow list filter only allows specified claims", func(t *testing.T) {
 		// Setup token service with stub issuer that includes request context in token
-		localClaimMapperRegistry := issuer.NewClaimMapperRegistry()
-		localClaimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
-		localClaimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+		localClaimMapperRegistry := service.NewClaimMapperRegistry()
+		localClaimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
+		localClaimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
-		localIssuerRegistry := issuer.NewSimpleRegistry()
+		localIssuerRegistry := service.NewSimpleRegistry()
 		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, issuer.WithIncludeRequestContext(true))
-		localIssuerRegistry.Register(issuer.TokenTypeTransactionToken, localTxnTokenIssuer)
-		localTokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
+		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
+		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
 
 		// Use allow list filter that only allows method and path
 		allowListFilter := NewAllowListClaimsFilterRegistry([]string{"method", "path"})

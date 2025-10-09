@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -16,7 +17,7 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("issues token successfully", func(t *testing.T) {
 		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 
-		tokenCtx := &TokenContext{
+		tokenCtx := &service.TokenContext{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -56,7 +57,7 @@ func TestStubIssuer(t *testing.T) {
 		ttl := 10 * time.Minute
 		issuer := NewStubIssuer("https://parsec.example.com", ttl)
 
-		tokenCtx := &TokenContext{
+		tokenCtx := &service.TokenContext{
 			Subject: &trust.Result{
 				Subject: "test-user",
 			},
@@ -100,7 +101,7 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("generates unique token values", func(t *testing.T) {
 		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
 
-		tokenCtx := &TokenContext{
+		tokenCtx := &service.TokenContext{
 			Subject: &trust.Result{
 				Subject: "test-user",
 			},

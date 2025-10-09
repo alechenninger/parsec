@@ -1,4 +1,4 @@
-package issuer
+package service
 
 // TokenType identifies the type of token being issued
 type TokenType string

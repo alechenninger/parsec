@@ -10,6 +10,7 @@ import (
 
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/server"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -36,28 +37,28 @@ func run() error {
 	trustStore.AddValidator(stubValidator)
 
 	// Create data source registry
-	dataSourceRegistry := issuer.NewDataSourceRegistry()
+	dataSourceRegistry := service.NewDataSourceRegistry()
 	// No data sources registered yet - can be added as needed
 
 	// Create claim mapper registry
-	claimMapperRegistry := issuer.NewClaimMapperRegistry()
+	claimMapperRegistry := service.NewClaimMapperRegistry()
 	// Register a simple passthrough mapper for transaction context
-	claimMapperRegistry.RegisterTransactionContext(issuer.NewPassthroughSubjectMapper())
+	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
 	// Register request attributes mapper for request context
-	claimMapperRegistry.RegisterRequestContext(issuer.NewRequestAttributesMapper())
+	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	// Create issuer registry
-	issuerRegistry := issuer.NewSimpleRegistry()
+	issuerRegistry := service.NewSimpleRegistry()
 	// Register issuers for different token types
 	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.example.com", 5*time.Minute)
-	issuerRegistry.Register(issuer.TokenTypeTransactionToken, txnTokenIssuer)
+	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 	// TODO: Register other token types as needed
 	// issuerRegistry.Register(issuer.TokenTypeAccessToken, accessTokenIssuer)
 
 	// Create token service
 	// Trust domain is used as the audience for all issued tokens
 	trustDomain := "parsec.example.com"
-	tokenService := issuer.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
 	// Create claims filter registry
 	// This determines which request_context claims actors are allowed to provide

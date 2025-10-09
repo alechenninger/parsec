@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
-	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -22,15 +22,15 @@ func (m *mockDataSource) Name() string {
 	return m.name
 }
 
-func (m *mockDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (m *mockDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	data, err := json.Marshal(m.data)
 	if err != nil {
 		return nil, err
 	}
 
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        data,
-		ContentType: issuer.ContentTypeJSON,
+		ContentType: service.ContentTypeJSON,
 	}, nil
 }
 
@@ -44,7 +44,7 @@ func (m *mockCountingDataSource) Name() string {
 	return m.name
 }
 
-func (m *mockCountingDataSource) Fetch(ctx context.Context, input *issuer.DataSourceInput) (*issuer.DataSourceResult, error) {
+func (m *mockCountingDataSource) Fetch(ctx context.Context, input *service.DataSourceInput) (*service.DataSourceResult, error) {
 	m.callCount++
 	data := map[string]any{"value": m.callCount}
 	dataBytes, err := json.Marshal(data)
@@ -52,9 +52,9 @@ func (m *mockCountingDataSource) Fetch(ctx context.Context, input *issuer.DataSo
 		return nil, err
 	}
 
-	return &issuer.DataSourceResult{
+	return &service.DataSourceResult{
 		Data:        dataBytes,
-		ContentType: issuer.ContentTypeJSON,
+		ContentType: service.ContentTypeJSON,
 	}, nil
 }
 
@@ -99,7 +99,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{}
+		input := &service.MapperInput{}
 		result, err := mapper.Map(ctx, input)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -128,7 +128,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -165,7 +165,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -207,7 +207,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			Actor: &trust.Result{
 				Subject:     "spiffe://example.com/service/api",
 				Issuer:      "https://spiffe.example.com",
@@ -242,7 +242,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			RequestAttributes: &request.RequestAttributes{
 				Method:    "POST",
 				Path:      "/api/resource",
@@ -282,7 +282,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		registry := issuer.NewDataSourceRegistry()
+		registry := service.NewDataSourceRegistry()
 		registry.Register(&mockDataSource{
 			name: "user_roles",
 			data: map[string]any{
@@ -296,9 +296,9 @@ func TestCELMapper_Map(t *testing.T) {
 			},
 		})
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			DataSourceRegistry: registry,
-			DataSourceInput:    &issuer.DataSourceInput{},
+			DataSourceInput:    &service.DataSourceInput{},
 		}
 
 		result, err := mapper.Map(ctx, input)
@@ -331,7 +331,7 @@ func TestCELMapper_Map(t *testing.T) {
 		}
 
 		// Test production case
-		prodInput := &issuer.MapperInput{
+		prodInput := &service.MapperInput{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -355,7 +355,7 @@ func TestCELMapper_Map(t *testing.T) {
 		}
 
 		// Test dev case
-		devInput := &issuer.MapperInput{
+		devInput := &service.MapperInput{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -392,7 +392,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		registry := issuer.NewDataSourceRegistry()
+		registry := service.NewDataSourceRegistry()
 		registry.Register(&mockDataSource{
 			name: "user_roles",
 			data: map[string]any{
@@ -400,7 +400,7 @@ func TestCELMapper_Map(t *testing.T) {
 			},
 		})
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			Subject: &trust.Result{
 				Subject:     "alice",
 				Issuer:      "https://idp.example.com",
@@ -414,7 +414,7 @@ func TestCELMapper_Map(t *testing.T) {
 				IPAddress: "10.0.0.1",
 			},
 			DataSourceRegistry: registry,
-			DataSourceInput:    &issuer.DataSourceInput{},
+			DataSourceInput:    &service.DataSourceInput{},
 		}
 
 		result, err := mapper.Map(ctx, input)
@@ -449,7 +449,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			// All fields nil
 		}
 
@@ -484,12 +484,12 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		registry := issuer.NewDataSourceRegistry()
+		registry := service.NewDataSourceRegistry()
 		registry.Register(countingDS)
 
-		input := &issuer.MapperInput{
+		input := &service.MapperInput{
 			DataSourceRegistry: registry,
-			DataSourceInput:    &issuer.DataSourceInput{},
+			DataSourceInput:    &service.DataSourceInput{},
 		}
 
 		result, err := mapper.Map(ctx, input)
@@ -527,7 +527,7 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		input := &issuer.MapperInput{}
+		input := &service.MapperInput{}
 		_, err = mapper.Map(ctx, input)
 		if err == nil {
 			t.Fatal("expected error for non-map result")
@@ -543,10 +543,10 @@ func TestCELMapper_Map(t *testing.T) {
 			t.Fatalf("failed to create mapper: %v", err)
 		}
 
-		registry := issuer.NewDataSourceRegistry()
-		input := &issuer.MapperInput{
+		registry := service.NewDataSourceRegistry()
+		input := &service.MapperInput{
 			DataSourceRegistry: registry,
-			DataSourceInput:    &issuer.DataSourceInput{},
+			DataSourceInput:    &service.DataSourceInput{},
 		}
 
 		result, err := mapper.Map(ctx, input)

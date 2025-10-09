@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/request"
+	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
@@ -26,7 +26,7 @@ func TestDistributedCachingDataSource(t *testing.T) {
 
 		cached := NewDistributedCachingDataSource(source, config)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -70,13 +70,13 @@ func TestDistributedCachingDataSource(t *testing.T) {
 
 		cached := NewDistributedCachingDataSource(source, config)
 
-		input1 := &issuer.DataSourceInput{
+		input1 := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user1@example.com",
 			},
 		}
 
-		input2 := &issuer.DataSourceInput{
+		input2 := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user2@example.com",
 			},
@@ -129,7 +129,7 @@ func TestDistributedCachingDataSource(t *testing.T) {
 		cached := NewDistributedCachingDataSource(source, config)
 
 		// Should not panic and should work
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -157,7 +157,7 @@ func TestDistributedCachingDataSource(t *testing.T) {
 
 		cached := NewDistributedCachingDataSource(source, config)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -194,7 +194,7 @@ func TestDistributedCachingDataSource(t *testing.T) {
 
 		cached := NewDistributedCachingDataSource(source, config)
 
-		input := &issuer.DataSourceInput{
+		input := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 			},
@@ -336,7 +336,7 @@ func TestStripTTLSuffix(t *testing.T) {
 
 func TestSerializeDeserializeInputJSON(t *testing.T) {
 	t.Run("round-trip serialization", func(t *testing.T) {
-		original := &issuer.DataSourceInput{
+		original := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
@@ -378,7 +378,7 @@ func TestSerializeDeserializeInputJSON(t *testing.T) {
 	})
 
 	t.Run("handles nil values", func(t *testing.T) {
-		original := &issuer.DataSourceInput{
+		original := &service.DataSourceInput{
 			Subject: nil,
 		}
 
@@ -398,7 +398,7 @@ func TestSerializeDeserializeInputJSON(t *testing.T) {
 	})
 
 	t.Run("masked input serialization", func(t *testing.T) {
-		fullInput := &issuer.DataSourceInput{
+		fullInput := &service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: "user@example.com",
 				Issuer:  "https://idp.example.com",
@@ -411,7 +411,7 @@ func TestSerializeDeserializeInputJSON(t *testing.T) {
 		}
 
 		// Simulate masking - only keep subject
-		masked := issuer.DataSourceInput{
+		masked := service.DataSourceInput{
 			Subject: &trust.Result{
 				Subject: fullInput.Subject.Subject,
 			},
