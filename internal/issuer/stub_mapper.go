@@ -2,6 +2,7 @@ package issuer
 
 import (
 	"context"
+	"maps"
 
 	"github.com/alechenninger/parsec/internal/claims"
 )
@@ -68,9 +69,7 @@ func (r *RequestAttributesMapper) Map(ctx context.Context, input *MapperInput) (
 	}
 
 	// Include all items from Additional map
-	for key, value := range input.RequestAttributes.Additional {
-		result[key] = value
-	}
+	maps.Copy(result, input.RequestAttributes.Additional)
 
 	return result, nil
 }
