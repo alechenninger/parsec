@@ -1,0 +1,109 @@
+# parsec Configuration - Production Example
+#
+# Production-ready configuration with:
+# - JWT validators with JWKS
+# - Filtered trust store with CEL-based authorization
+# - Distributed caching for data sources
+# - Unsigned tokens (replace with JWT issuer in production)
+
+server:
+  grpc_port: 9090
+  http_port: 8080
+
+trust_domain: "parsec.prod.example.com"
+
+# Filtered trust store for production
+trust_store:
+  type: filtered_store
+  validators:
+    # Production OIDC provider
+    - name: oidc-prod
+      type: jwt_validator
+      issuer: "https://accounts.example.com"
+      jwks_url: "https://accounts.example.com/.well-known/jwks.json"
+      trust_domain: "prod.example.com"
+      refresh_interval: "15m"
+    
+    # Service mesh mTLS certificates (if using mTLS)
+    # Note: mTLS support would require additional validator implementation
+    # - name: service-mesh
+    #   type: mtls_validator
+    #   trust_domain: "mesh.prod.example.com"
+  
+  # Actor-based filtering: only allow specific validators for certain actors
+  # Example: service mesh actors can only use the prod OIDC validator
+  filter:
+    type: cel
+    script: |
+      actor.trust_domain == "prod.example.com" && 
+      actor.claims.verified == true
+
+# Data sources with distributed caching
+data_sources:
+  # User permissions from central authorization service
+  - name: user_permissions
+    type: lua
+    script_file: /etc/parsec/scripts/user_permissions.lua
+    config:
+      permissions_api: "https://authz.internal.example.com"
+      api_key: "inject-via-env-var"  # Use PARSEC_DATA_SOURCES__0__CONFIG__API_KEY
+    http:
+      timeout: 30s
+    caching:
+      type: distributed
+      ttl: 5m
+      group_name: "permissions-cache"
+      cache_size: 268435456  # 256 MB
+  
+  # Organization metadata
+  - name: org_metadata
+    type: lua
+    script_file: /etc/parsec/scripts/org_metadata.lua
+    config:
+      org_api: "https://org.internal.example.com"
+      api_key: "inject-via-env-var"  # Use PARSEC_DATA_SOURCES__1__CONFIG__API_KEY
+    http:
+      timeout: 10s
+    caching:
+      type: distributed
+      ttl: 1h
+      group_name: "org-cache"
+      cache_size: 104857600  # 100 MB
+
+# Claim mappers
+claim_mappers:
+  transaction_context:
+    # Include subject identity
+    - type: passthrough
+    
+    # Add permissions and org context
+    - type: cel
+      script: |
+        {
+          "sub": subject.subject,
+          "permissions": datasource("user_permissions").permissions,
+          "org_id": datasource("org_metadata").org_id,
+          "org_tier": datasource("org_metadata").tier
+        }
+  
+  request_context:
+    # Request attributes (path, method, headers, etc.)
+    - type: request_attributes
+
+# Token issuers
+# TODO: Replace with JWT issuer with proper signing in production
+issuers:
+  - token_type: transaction_token
+    type: unsigned
+    issuer_url: "https://parsec.prod.example.com"
+    ttl: 5m
+    # In production, use JWT issuer:
+    # type: jwt
+    # signing_key: /etc/parsec/keys/signing-key.pem
+    # signing_key_id: prod-key-2024
+    # signing_alg: RS256
+
+# Claims filter - allow all in production (filtering happens at trust store level)
+claims_filter:
+  type: stub
+

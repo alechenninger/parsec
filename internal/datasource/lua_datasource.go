@@ -45,16 +45,8 @@ type LuaDataSourceConfig struct {
 	// If nil, an empty MapConfigSource will be used
 	ConfigSource luaservices.ConfigSource
 
-	// HTTPTimeout is the timeout for HTTP requests made by the script
-	// Default: 30 seconds
-	HTTPTimeout time.Duration
-
-	// HTTPRequestOptions is an optional function to modify HTTP requests before they are sent
-	// This can be used to add authentication headers, modify URLs, etc.
-	HTTPRequestOptions luaservices.RequestOptions
-
-	// HTTPConfig provides full HTTP service configuration including fixtures
-	// If set, this overrides HTTPTimeout and HTTPRequestOptions
+	// HTTPConfig provides HTTP service configuration including timeout, fixtures, etc.
+	// If nil, default HTTP config (30s timeout, no fixtures) will be used
 	HTTPConfig *luaservices.HTTPServiceConfig
 }
 
@@ -67,9 +59,6 @@ func NewLuaDataSource(config LuaDataSourceConfig) (*LuaDataSource, error) {
 		return nil, fmt.Errorf("script is required")
 	}
 
-	if config.HTTPTimeout == 0 {
-		config.HTTPTimeout = 30 * time.Second
-	}
 	if config.ConfigSource == nil {
 		config.ConfigSource = luaservices.NewMapConfigSource(nil)
 	}
@@ -87,14 +76,14 @@ func NewLuaDataSource(config LuaDataSourceConfig) (*LuaDataSource, error) {
 		return nil, fmt.Errorf("script must define a 'fetch' function")
 	}
 
-	// Build HTTP config
+	// Build HTTP config with defaults if not provided
 	var httpConfig luaservices.HTTPServiceConfig
 	if config.HTTPConfig != nil {
 		httpConfig = *config.HTTPConfig
 	} else {
+		// Default: 30 second timeout, no fixtures
 		httpConfig = luaservices.HTTPServiceConfig{
-			Timeout:        config.HTTPTimeout,
-			RequestOptions: config.HTTPRequestOptions,
+			Timeout: 30 * time.Second,
 		}
 	}
 
@@ -359,16 +348,8 @@ type CacheableLuaDataSourceConfig struct {
 	// If nil, an empty MapConfigSource will be used
 	ConfigSource luaservices.ConfigSource
 
-	// HTTPTimeout is the timeout for HTTP requests made by the script
-	// Default: 30 seconds
-	HTTPTimeout time.Duration
-
-	// HTTPRequestOptions is an optional function to modify HTTP requests before they are sent
-	// This can be used to add authentication headers, modify URLs, etc.
-	HTTPRequestOptions luaservices.RequestOptions
-
-	// HTTPConfig provides full HTTP service configuration including fixtures
-	// If set, this overrides HTTPTimeout and HTTPRequestOptions
+	// HTTPConfig provides HTTP service configuration including timeout, fixtures, etc.
+	// If nil, default HTTP config (30s timeout, no fixtures) will be used
 	HTTPConfig *luaservices.HTTPServiceConfig
 
 	// CacheKeyFunc is the name of the Lua function that generates cache keys
@@ -398,12 +379,10 @@ func NewCacheableLuaDataSource(config CacheableLuaDataSourceConfig) (*CacheableL
 
 	// Create the base data source
 	baseDS, err := NewLuaDataSource(LuaDataSourceConfig{
-		Name:               config.Name,
-		Script:             config.Script,
-		ConfigSource:       config.ConfigSource,
-		HTTPTimeout:        config.HTTPTimeout,
-		HTTPRequestOptions: config.HTTPRequestOptions,
-		HTTPConfig:         config.HTTPConfig,
+		Name:         config.Name,
+		Script:       config.Script,
+		ConfigSource: config.ConfigSource,
+		HTTPConfig:   config.HTTPConfig,
 	})
 	if err != nil {
 		return nil, err

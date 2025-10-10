@@ -1,0 +1,197 @@
+package config
+
+// Config is the root configuration structure for parsec
+type Config struct {
+	// Server configuration (gRPC and HTTP ports)
+	Server ServerConfig `koanf:"server"`
+
+	// TrustDomain is the trust domain for this parsec instance
+	// Used as the audience for all issued tokens
+	TrustDomain string `koanf:"trust_domain"`
+
+	// TrustStore configuration (validators and filtering)
+	TrustStore TrustStoreConfig `koanf:"trust_store"`
+
+	// DataSources for token enrichment
+	DataSources []DataSourceConfig `koanf:"data_sources"`
+
+	// ClaimMappers configuration for transaction and request contexts
+	ClaimMappers ClaimMappersConfig `koanf:"claim_mappers"`
+
+	// Issuers configuration for different token types
+	Issuers []IssuerConfig `koanf:"issuers"`
+
+	// ClaimsFilterRegistry determines which request_context claims actors can provide
+	ClaimsFilter ClaimsFilterConfig `koanf:"claims_filter"`
+}
+
+// ServerConfig contains server-specific settings
+type ServerConfig struct {
+	// GRPCPort is the port for gRPC services (ext_authz, token exchange)
+	GRPCPort int `koanf:"grpc_port"`
+
+	// HTTPPort is the port for HTTP services (gRPC-gateway transcoding)
+	HTTPPort int `koanf:"http_port"`
+}
+
+// TrustStoreConfig configures the trust store and its validators
+type TrustStoreConfig struct {
+	// Type selects the trust store implementation
+	// Options: "stub_store", "filtered_store"
+	Type string `koanf:"type"`
+
+	// Validators is the list of validators to add to the store
+	Validators []NamedValidatorConfig `koanf:"validators"`
+
+	// Filter configuration (only used when Type is "filtered_store")
+	Filter *ValidatorFilterConfig `koanf:"filter"`
+}
+
+// NamedValidatorConfig is a validator with a name (for FilteredStore)
+type NamedValidatorConfig struct {
+	// Name uniquely identifies this validator
+	Name string `koanf:"name"`
+
+	// ValidatorConfig contains the actual validator configuration
+	ValidatorConfig `koanf:",squash"`
+}
+
+// ValidatorConfig configures a credential validator
+type ValidatorConfig struct {
+	// Type selects the validator implementation
+	// Options: "jwt_validator", "json_validator", "stub_validator"
+	Type string `koanf:"type"`
+
+	// JWT Validator fields
+	Issuer          string `koanf:"issuer"`
+	JWKSURL         string `koanf:"jwks_url"`
+	TrustDomain     string `koanf:"trust_domain"`
+	RefreshInterval string `koanf:"refresh_interval"` // Duration string like "15m"
+
+	// JSON Validator fields
+	// (TrustDomain is shared)
+
+	// Stub Validator fields
+	CredentialTypes []string `koanf:"credential_types"` // e.g., ["bearer", "jwt"]
+}
+
+// ValidatorFilterConfig configures validator filtering for actors
+type ValidatorFilterConfig struct {
+	// Type selects the filter implementation
+	// Options: "cel", "any", "passthrough"
+	Type string `koanf:"type"`
+
+	// CEL filter fields
+	Script string `koanf:"script"`
+
+	// Any filter fields (composite filter - allows if any sub-filter allows)
+	Filters []ValidatorFilterConfig `koanf:"filters"`
+}
+
+// DataSourceConfig configures a data source
+type DataSourceConfig struct {
+	// Name uniquely identifies this data source
+	Name string `koanf:"name"`
+
+	// Type selects the data source implementation
+	// Options: "lua"
+	Type string `koanf:"type"`
+
+	// Lua data source fields
+	ScriptFile string         `koanf:"script_file"` // Path to Lua script
+	Script     string         `koanf:"script"`      // Inline Lua script (alternative to ScriptFile)
+	Config     map[string]any `koanf:"config"`      // Config values available to script
+
+	// HTTP configuration
+	HTTPConfig *HTTPConfig `koanf:"http"`
+
+	// Caching configuration
+	Caching *CachingConfig `koanf:"caching"`
+}
+
+// HTTPConfig configures HTTP client for Lua data sources
+type HTTPConfig struct {
+	// Timeout for HTTP requests (default: 30s)
+	Timeout string `koanf:"timeout"` // Duration string like "30s"
+
+	// FixturesFile path to load HTTP fixtures from (for testing)
+	FixturesFile string `koanf:"fixtures_file"`
+
+	// FixturesDir path to load HTTP fixtures from directory (for testing)
+	FixturesDir string `koanf:"fixtures_dir"`
+}
+
+// CachingConfig configures caching for a data source
+type CachingConfig struct {
+	// Type selects the caching implementation
+	// Options: "in_memory", "distributed", "none"
+	Type string `koanf:"type"`
+
+	// TTL is the cache time-to-live
+	TTL string `koanf:"ttl"` // Duration string like "5m"
+
+	// Distributed caching fields
+	GroupName string `koanf:"group_name"` // For groupcache
+	CacheSize int64  `koanf:"cache_size"` // Cache size in bytes
+}
+
+// ClaimMappersConfig configures claim mappers for transaction and request contexts
+type ClaimMappersConfig struct {
+	// TransactionContext mappers build the "tctx" claim
+	TransactionContext []ClaimMapperConfig `koanf:"transaction_context"`
+
+	// RequestContext mappers build the "req_ctx" claim
+	RequestContext []ClaimMapperConfig `koanf:"request_context"`
+}
+
+// ClaimMapperConfig configures a claim mapper
+type ClaimMapperConfig struct {
+	// Type selects the mapper implementation
+	// Options: "cel", "passthrough", "request_attributes", "stub"
+	Type string `koanf:"type"`
+
+	// CEL mapper fields
+	Script string `koanf:"script"`
+
+	// Stub mapper fields
+	Claims map[string]any `koanf:"claims"`
+}
+
+// IssuerConfig configures a token issuer
+type IssuerConfig struct {
+	// TokenType identifies which token type this issuer handles
+	// e.g., "transaction_token", "access_token"
+	TokenType string `koanf:"token_type"`
+
+	// Type selects the issuer implementation
+	// Options: "stub", "unsigned", "jwt"
+	Type string `koanf:"type"`
+
+	// Common fields
+	IssuerURL string `koanf:"issuer_url"`
+	TTL       string `koanf:"ttl"` // Duration string like "5m"
+
+	// JWT issuer fields
+	SigningKey   string `koanf:"signing_key"`    // Path to signing key
+	SigningKeyID string `koanf:"signing_key_id"` // Key ID (kid)
+	SigningAlg   string `koanf:"signing_alg"`    // Algorithm (RS256, ES256, etc.)
+
+	// Stub issuer fields
+	IncludeRequestContext bool `koanf:"include_request_context"`
+}
+
+// ClaimsFilterConfig configures the claims filter registry
+type ClaimsFilterConfig struct {
+	// Type selects the filter registry implementation
+	// Options: "stub", "cel", "allowlist"
+	Type string `koanf:"type"`
+
+	// CEL-based filter
+	Script string `koanf:"script"`
+
+	// Allowlist-based filter
+	AllowedClaims []string `koanf:"allowed_claims"`
+
+	// Per-actor rules
+	ActorRules map[string][]string `koanf:"actor_rules"` // Map of actor pattern to allowed claims
+}

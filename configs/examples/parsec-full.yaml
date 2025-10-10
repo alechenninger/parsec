@@ -1,0 +1,161 @@
+# parsec Configuration - Full Example
+#
+# This configuration demonstrates all available features including:
+# - Filtered trust store with CEL-based validator filtering
+# - Lua data sources with caching
+# - CEL-based claim mapping
+# - Multiple validators
+
+server:
+  grpc_port: 9090
+  http_port: 8080
+
+trust_domain: "parsec.example.com"
+
+# Filtered trust store with multiple validators and CEL-based filtering
+trust_store:
+  type: filtered_store
+  validators:
+    # Production JWT validator
+    - name: prod-jwt-validator
+      type: jwt_validator
+      issuer: "https://idp.example.com"
+      jwks_url: "https://idp.example.com/.well-known/jwks.json"
+      trust_domain: "prod.example.com"
+      refresh_interval: "15m"
+    
+    # Development JWT validator
+    - name: dev-jwt-validator
+      type: jwt_validator
+      issuer: "https://dev-idp.example.com"
+      jwks_url: "https://dev-idp.example.com/.well-known/jwks.json"
+      trust_domain: "dev.example.com"
+      refresh_interval: "15m"
+    
+    # JSON validator for structured credentials
+    - name: json-validator
+      type: json_validator
+      trust_domain: "test.example.com"
+    
+    # Stub validator for testing
+    - name: stub-validator
+      type: stub_validator
+      credential_types: ["bearer", "jwt"]
+  
+  # CEL filter to control which validators actors can use
+  # Example: Only allow prod validators for prod actors
+  filter:
+    type: cel
+    script: |
+      actor.trust_domain == "prod.example.com" ? 
+        validator_name.startsWith("prod-") : 
+        validator_name != "prod-jwt-validator"
+  
+  # Alternative: Use 'any' filter to allow if any condition matches
+  # filter:
+  #   type: any
+  #   filters:
+  #     - type: cel
+  #       script: actor.trust_domain == "prod.example.com" && validator_name == "prod-jwt-validator"
+  #     - type: cel
+  #       script: actor.claims.admin == true
+  #     - type: cel
+  #       script: validator_name == "stub-validator"
+
+# Data sources for token enrichment
+data_sources:
+  # User roles data source with in-memory caching
+  - name: user_roles
+    type: lua
+    script_file: ./scripts/user_roles.lua
+    config:
+      api_url: "https://api.example.com"
+      api_key: "secret-key"  # Use env vars to inject: PARSEC_DATA_SOURCES__0__CONFIG__API_KEY
+    http:
+      timeout: 30s
+    caching:
+      type: in_memory
+      ttl: 5m
+  
+  # Geo location data source with distributed caching
+  - name: geo
+    type: lua
+    script_file: ./scripts/geo.lua
+    http:
+      timeout: 10s
+    caching:
+      type: distributed
+      ttl: 1h
+      group_name: "geo-cache"
+      cache_size: 104857600  # 100 MB
+  
+  # Inline Lua script example (no caching)
+  - name: example_inline
+    type: lua
+    script: |
+      function fetch(input)
+        return {
+          data = {message = "Hello from inline script"},
+          content_type = "application/json"
+        }
+      end
+    http:
+      timeout: 5s
+  
+  # Example with HTTP fixtures for testing (no real HTTP calls)
+  # - name: user_permissions_test
+  #   type: lua
+  #   script_file: ./scripts/user_permissions.lua
+  #   http:
+  #     timeout: 10s
+  #     fixtures_file: ./test/fixtures/user_api.yaml
+  #   caching:
+  #     type: in_memory
+  #     ttl: 5m
+
+# Claim mappers
+claim_mappers:
+  # Transaction context: combine subject claims with enriched data
+  transaction_context:
+    # Start with subject claims
+    - type: passthrough
+    
+    # Add enriched claims from data sources
+    - type: cel
+      script: |
+        {
+          "roles": datasource("user_roles").roles,
+          "region": datasource("geo").region,
+          "env": actor.trust_domain == "prod.example.com" ? "production" : "development"
+        }
+  
+  # Request context: request attributes plus conditional claims
+  request_context:
+    - type: request_attributes
+    
+    - type: cel
+      script: |
+        {
+          "is_admin_request": request.path.startsWith("/admin/"),
+          "request_time": string(request.time)
+        }
+
+# Token issuers
+issuers:
+  # Transaction token issuer (unsigned for development)
+  - token_type: transaction_token
+    type: unsigned
+    issuer_url: "https://parsec.example.com"
+    ttl: 5m
+  
+  # Access token issuer (stub for testing)
+  - token_type: access_token
+    type: stub
+    issuer_url: "https://parsec.example.com"
+    ttl: 1h
+    include_request_context: true
+
+# Claims filter registry
+claims_filter:
+  type: stub
+

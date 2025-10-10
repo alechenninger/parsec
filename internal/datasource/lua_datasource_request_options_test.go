@@ -61,10 +61,12 @@ end
 		ConfigSource: luaservices.NewMapConfigSource(map[string]interface{}{
 			"api_endpoint": server.URL,
 		}),
-		HTTPRequestOptions: func(req *http.Request) error {
-			// Automatically add authentication
-			req.Header.Set("Authorization", "Bearer secret-token")
-			return nil
+		HTTPConfig: &luaservices.HTTPServiceConfig{
+			RequestOptions: func(req *http.Request) error {
+				// Automatically add authentication
+				req.Header.Set("Authorization", "Bearer secret-token")
+				return nil
+			},
 		},
 	})
 	if err != nil {
@@ -145,14 +147,16 @@ end
 		Name:         "test",
 		Script:       script,
 		ConfigSource: configSource,
-		HTTPRequestOptions: func(req *http.Request) error {
-			// Get API key from config
-			apiKey, ok := configSource.Get("api_key")
-			if !ok {
-				return http.ErrNotSupported
-			}
-			req.Header.Set("X-API-Key", apiKey.(string))
-			return nil
+		HTTPConfig: &luaservices.HTTPServiceConfig{
+			RequestOptions: func(req *http.Request) error {
+				// Get API key from config
+				apiKey, ok := configSource.Get("api_key")
+				if !ok {
+					return http.ErrNotSupported
+				}
+				req.Header.Set("X-API-Key", apiKey.(string))
+				return nil
+			},
 		},
 	})
 	if err != nil {
@@ -217,12 +221,14 @@ end
 		ConfigSource: luaservices.NewMapConfigSource(map[string]interface{}{
 			"api_endpoint": server.URL,
 		}),
-		HTTPRequestOptions: func(req *http.Request) error {
-			// Add tenant as query parameter
-			q := req.URL.Query()
-			q.Add("tenant", "acme-corp")
-			req.URL.RawQuery = q.Encode()
-			return nil
+		HTTPConfig: &luaservices.HTTPServiceConfig{
+			RequestOptions: func(req *http.Request) error {
+				// Add tenant as query parameter
+				q := req.URL.Query()
+				q.Add("tenant", "acme-corp")
+				req.URL.RawQuery = q.Encode()
+				return nil
+			},
 		},
 	})
 	if err != nil {
