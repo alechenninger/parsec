@@ -273,15 +273,12 @@ issuers:
 The token exchange server can be configured with claims filtering to control which request_context claims actors can provide:
 
 ```yaml
-server:
-  grpc_port: 9090
-  http_port: 8080
-  exchange_server:
-    claims_filter:
-      type: stub  # Allow all claims (passthrough)
+exchange_server:
+  claims_filter:
+    type: stub  # Allow all claims (passthrough)
 ```
 
-This configuration is part of the server configuration, similar to how `authz_server` is configured.
+This is a top-level configuration section, separate from the network-level `server` settings.
 
 ## Examples
 
