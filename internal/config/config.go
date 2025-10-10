@@ -20,9 +20,6 @@ type Config struct {
 
 	// Issuers configuration for different token types
 	Issuers []IssuerConfig `koanf:"issuers"`
-
-	// ClaimsFilterRegistry determines which request_context claims actors can provide
-	ClaimsFilter ClaimsFilterConfig `koanf:"claims_filter"`
 }
 
 // ServerConfig contains server-specific settings
@@ -32,6 +29,38 @@ type ServerConfig struct {
 
 	// HTTPPort is the port for HTTP services (gRPC-gateway transcoding)
 	HTTPPort int `koanf:"http_port"`
+
+	// AuthzServer configuration for ext_authz service
+	AuthzServer *AuthzServerConfig `koanf:"authz_server"`
+
+	// ExchangeServer configuration for token exchange service
+	ExchangeServer *ExchangeServerConfig `koanf:"exchange_server"`
+}
+
+// AuthzServerConfig configures the ext_authz authorization server
+type AuthzServerConfig struct {
+	// TokenTypes specifies which token types to issue and how to deliver them
+	TokenTypes []TokenTypeConfig `koanf:"token_types"`
+}
+
+// TokenTypeConfig specifies a token type to issue via ext_authz
+type TokenTypeConfig struct {
+	// Type is the OAuth token type URN
+	// Examples:
+	//   - "urn:ietf:params:oauth:token-type:txn_token" (transaction token)
+	//   - "urn:ietf:params:oauth:token-type:access_token" (access token)
+	//   - "urn:ietf:params:oauth:token-type:jwt" (JWT)
+	Type string `koanf:"type"`
+
+	// HeaderName is the HTTP header to use for this token
+	// e.g., "Transaction-Token", "Authorization", "X-Custom-Token"
+	HeaderName string `koanf:"header_name"`
+}
+
+// ExchangeServerConfig configures the token exchange server
+type ExchangeServerConfig struct {
+	// ClaimsFilter determines which request_context claims actors can provide
+	ClaimsFilter ClaimsFilterConfig `koanf:"claims_filter"`
 }
 
 // TrustStoreConfig configures the trust store and its validators
@@ -159,8 +188,11 @@ type ClaimMapperConfig struct {
 
 // IssuerConfig configures a token issuer
 type IssuerConfig struct {
-	// TokenType identifies which token type this issuer handles
-	// e.g., "transaction_token", "access_token"
+	// TokenType is the OAuth token type URN this issuer handles
+	// Examples:
+	//   - "urn:ietf:params:oauth:token-type:txn_token" (transaction token)
+	//   - "urn:ietf:params:oauth:token-type:access_token" (access token)
+	//   - "urn:ietf:params:oauth:token-type:jwt" (JWT)
 	TokenType string `koanf:"token_type"`
 
 	// Type selects the issuer implementation

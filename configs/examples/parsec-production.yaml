@@ -9,6 +9,9 @@
 server:
   grpc_port: 9090
   http_port: 8080
+  exchange_server:
+    claims_filter:
+      type: stub
 
 trust_domain: "parsec.prod.example.com"
 
@@ -93,7 +96,7 @@ claim_mappers:
 # Token issuers
 # TODO: Replace with JWT issuer with proper signing in production
 issuers:
-  - token_type: transaction_token
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: unsigned
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
@@ -102,8 +105,3 @@ issuers:
     # signing_key: /etc/parsec/keys/signing-key.pem
     # signing_key_id: prod-key-2024
     # signing_alg: RS256
-
-# Claims filter - allow all in production (filtering happens at trust store level)
-claims_filter:
-  type: stub
-

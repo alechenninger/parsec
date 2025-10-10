@@ -9,6 +9,9 @@
 server:
   grpc_port: 9090
   http_port: 8080
+  exchange_server:
+    claims_filter:
+      type: stub
 
 trust_domain: "parsec.example.com"
 
@@ -143,19 +146,15 @@ claim_mappers:
 # Token issuers
 issuers:
   # Transaction token issuer (unsigned for development)
-  - token_type: transaction_token
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: unsigned
     issuer_url: "https://parsec.example.com"
     ttl: 5m
   
   # Access token issuer (stub for testing)
-  - token_type: access_token
+  - token_type: "urn:ietf:params:oauth:token-type:access_token"
     type: stub
     issuer_url: "https://parsec.example.com"
     ttl: 1h
     include_request_context: true
-
-# Claims filter registry
-claims_filter:
-  type: stub
 

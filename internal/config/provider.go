@@ -89,13 +89,19 @@ func (p *Provider) IssuerRegistry() (service.Registry, error) {
 	return registry, nil
 }
 
-// ClaimsFilterRegistry returns the configured claims filter registry
-func (p *Provider) ClaimsFilterRegistry() (server.ClaimsFilterRegistry, error) {
+// ExchangeServerClaimsFilterRegistry returns the claims filter registry for the exchange server
+func (p *Provider) ExchangeServerClaimsFilterRegistry() (server.ClaimsFilterRegistry, error) {
 	if p.claimsFilterRegistry != nil {
 		return p.claimsFilterRegistry, nil
 	}
 
-	registry, err := NewClaimsFilterRegistry(p.config.ClaimsFilter)
+	// Get claims filter config from exchange server config
+	var claimsFilterCfg ClaimsFilterConfig
+	if p.config.Server.ExchangeServer != nil {
+		claimsFilterCfg = p.config.Server.ExchangeServer.ClaimsFilter
+	}
+
+	registry, err := NewClaimsFilterRegistry(claimsFilterCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create claims filter registry: %w", err)
 	}
@@ -149,4 +155,31 @@ func (p *Provider) ServerConfig() server.Config {
 // TrustDomain returns the configured trust domain
 func (p *Provider) TrustDomain() string {
 	return p.config.TrustDomain
+}
+
+// AuthzServerTokenTypes returns the configured token types for ext_authz
+func (p *Provider) AuthzServerTokenTypes() ([]server.TokenTypeSpec, error) {
+	// If no authz server config, return nil (will use defaults)
+	if p.config.Server.AuthzServer == nil || len(p.config.Server.AuthzServer.TokenTypes) == 0 {
+		return nil, nil
+	}
+
+	var tokenTypes []server.TokenTypeSpec
+	for _, ttCfg := range p.config.Server.AuthzServer.TokenTypes {
+		if ttCfg.Type == "" {
+			return nil, fmt.Errorf("token type is required")
+		}
+
+		if ttCfg.HeaderName == "" {
+			return nil, fmt.Errorf("header_name is required for token type %s", ttCfg.Type)
+		}
+
+		// Use token type directly as service.TokenType (it's already a URN string)
+		tokenTypes = append(tokenTypes, server.TokenTypeSpec{
+			Type:       service.TokenType(ttCfg.Type),
+			HeaderName: ttCfg.HeaderName,
+		})
+	}
+
+	return tokenTypes, nil
 }

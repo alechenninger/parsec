@@ -37,7 +37,7 @@ func TestAuthzServer_Check(t *testing.T) {
 	trustDomain := "parsec.test"
 	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
-	authzServer := NewAuthzServer(trustStore, tokenService)
+	authzServer := NewAuthzServer(trustStore, tokenService, nil)
 
 	t.Run("successful authorization", func(t *testing.T) {
 		req := &authv3.CheckRequest{
@@ -412,7 +412,7 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 	trustDomain := "parsec.test"
 	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
-	authzServer := NewAuthzServer(filteredStore, tokenService)
+	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
 
 	t.Run("anonymous actor gets filtered store - no validators match", func(t *testing.T) {
 		// No actor credentials in context, so ForActor will be called with AnonymousResult
@@ -479,7 +479,7 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 		storeWithGateway.AddValidator("external-validator", externalValidator)
 		storeWithGateway.AddValidator("internal-validator", internalValidator)
 
-		authzServerWithGateway := NewAuthzServer(storeWithGateway, tokenService)
+		authzServerWithGateway := NewAuthzServer(storeWithGateway, tokenService, nil)
 
 		req := &authv3.CheckRequest{
 			Attributes: &authv3.AttributeContext{
@@ -535,7 +535,7 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 		})
 		emptyStore.AddValidator(jwtValidator)
 
-		authzServerFailing := NewAuthzServer(emptyStore, tokenService)
+		authzServerFailing := NewAuthzServer(emptyStore, tokenService, nil)
 
 		// Add actor credentials (Bearer) that will fail validation since no Bearer validator exists
 		md := metadata.New(map[string]string{
@@ -625,7 +625,7 @@ func TestAuthzServer_WithActorFilteringByRequestPath(t *testing.T) {
 	trustDomain := "parsec.test"
 	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
 
-	authzServer := NewAuthzServer(filteredStore, tokenService)
+	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
 
 	t.Run("admin path allows admin validator", func(t *testing.T) {
 		req := &authv3.CheckRequest{

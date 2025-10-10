@@ -80,21 +80,28 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create token service: %w", err)
 	}
 
-	claimsFilterRegistry, err := provider.ClaimsFilterRegistry()
+	// 5. Get authz server token types from config
+	authzTokenTypes, err := provider.AuthzServerTokenTypes()
 	if err != nil {
-		return fmt.Errorf("failed to create claims filter registry: %w", err)
+		return fmt.Errorf("failed to get authz token types: %w", err)
 	}
 
-	// 5. Create service handlers
-	authzServer := server.NewAuthzServer(trustStore, tokenService)
+	// Get exchange server claims filter registry from config
+	claimsFilterRegistry, err := provider.ExchangeServerClaimsFilterRegistry()
+	if err != nil {
+		return fmt.Errorf("failed to get exchange server claims filter registry: %w", err)
+	}
+
+	// 6. Create service handlers
+	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes)
 	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
 
-	// 6. Create server configuration
+	// 7. Create server configuration
 	serverCfg := provider.ServerConfig()
 	serverCfg.AuthzServer = authzServer
 	serverCfg.ExchangeServer = exchangeServer
 
-	// 7. Create and start server
+	// 8. Create and start server
 	srv := server.New(serverCfg)
 	if err := srv.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start server: %w", err)
@@ -106,14 +113,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Trust Domain:          %s\n", provider.TrustDomain())
 	fmt.Printf("  Config:                %s\n", configPath)
 
-	// 8. Wait for interrupt signal
+	// 9. Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
 	fmt.Println("\nShutting down...")
 
-	// 9. Graceful shutdown
+	// 10. Graceful shutdown
 	if err := srv.Stop(ctx); err != nil {
 		return fmt.Errorf("error during shutdown: %w", err)
 	}

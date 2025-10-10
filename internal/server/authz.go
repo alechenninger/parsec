@@ -38,18 +38,21 @@ type AuthzServer struct {
 }
 
 // NewAuthzServer creates a new ext_authz server
-func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService) *AuthzServer {
-	// Default: Issue transaction tokens
-	// In the future, this could be configured per-route, per-domain, etc.
-	return &AuthzServer{
-		trustStore:   trustStore,
-		tokenService: tokenService,
-		TokenTypesToIssue: []TokenTypeSpec{
+func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService, tokenTypes []TokenTypeSpec) *AuthzServer {
+	// Default to transaction tokens if none specified
+	if len(tokenTypes) == 0 {
+		tokenTypes = []TokenTypeSpec{
 			{
 				Type:       service.TokenTypeTransactionToken,
 				HeaderName: "Transaction-Token",
 			},
-		},
+		}
+	}
+
+	return &AuthzServer{
+		trustStore:        trustStore,
+		tokenService:      tokenService,
+		TokenTypesToIssue: tokenTypes,
 	}
 }
 

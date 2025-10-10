@@ -6,6 +6,9 @@ trust_domain = "parsec.example.com"
 grpc_port = 9090
 http_port = 8080
 
+[server.exchange_server.claims_filter]
+type = "stub"
+
 [trust_store]
 type = "stub_store"
 
@@ -22,11 +25,7 @@ type = "passthrough"
 type = "request_attributes"
 
 [[issuers]]
-token_type = "transaction_token"
+token_type = "urn:ietf:params:oauth:token-type:txn_token"
 type = "stub"
 issuer_url = "https://parsec.example.com"
 ttl = "5m"
-
-[claims_filter]
-type = "stub"
-

@@ -250,11 +250,17 @@ Issuers create tokens:
 
 ```yaml
 issuers:
-  - token_type: transaction_token
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: stub  # stub, unsigned, jwt
     issuer_url: "https://parsec.example.com"
     ttl: 5m
 ```
+
+**Token Types:**
+
+- `urn:ietf:params:oauth:token-type:txn_token` - Transaction token (RFC draft)
+- `urn:ietf:params:oauth:token-type:access_token` - OAuth2 access token
+- `urn:ietf:params:oauth:token-type:jwt` - Generic JWT token
 
 **Issuer Types:**
 
@@ -262,14 +268,20 @@ issuers:
 - `unsigned` - Base64-encoded JSON tokens (never expires)
 - `jwt` - Signed JWT tokens (not yet implemented)
 
-### Claims Filter
+### Token Exchange Server
 
-Controls which request_context claims actors can provide:
+The token exchange server can be configured with claims filtering to control which request_context claims actors can provide:
 
 ```yaml
-claims_filter:
-  type: stub  # Allow all claims (passthrough)
+server:
+  grpc_port: 9090
+  http_port: 8080
+  exchange_server:
+    claims_filter:
+      type: stub  # Allow all claims (passthrough)
 ```
+
+This configuration is part of the server configuration, similar to how `authz_server` is configured.
 
 ## Examples
 

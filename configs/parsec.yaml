@@ -6,6 +6,12 @@
 server:
   grpc_port: 9090
   http_port: 8080
+  
+  # Exchange server configuration
+  exchange_server:
+    # Claims filter (determines which request_context claims actors can provide)
+    claims_filter:
+      type: stub  # Allow all claims (passthrough)
 
 # Trust domain for this parsec instance
 # Used as the audience (aud) claim in all issued tokens
@@ -33,12 +39,7 @@ claim_mappers:
 
 # Token issuers
 issuers:
-  - token_type: transaction_token
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: stub
     issuer_url: "https://parsec.example.com"
     ttl: 5m
-
-# Claims filter (determines which request_context claims actors can provide)
-claims_filter:
-  type: stub  # Allow all claims (passthrough)
-

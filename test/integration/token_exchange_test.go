@@ -55,7 +55,7 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19090,
 		HTTPPort:       18080,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
 		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
 	})
 
@@ -135,7 +135,7 @@ func TestTokenExchangeJSON(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19091,
 		HTTPPort:       18081,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
 		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
 	})
 

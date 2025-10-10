@@ -13,11 +13,12 @@ func NewIssuerRegistry(cfg []IssuerConfig) (service.Registry, error) {
 	registry := service.NewSimpleRegistry()
 
 	for _, issuerCfg := range cfg {
-		// Parse token type
-		tokenType, err := parseTokenType(issuerCfg.TokenType)
-		if err != nil {
-			return nil, fmt.Errorf("invalid token_type for issuer: %w", err)
+		if issuerCfg.TokenType == "" {
+			return nil, fmt.Errorf("token_type is required for issuer")
 		}
+
+		// Use token type directly as service.TokenType (it's already a URN string)
+		tokenType := service.TokenType(issuerCfg.TokenType)
 
 		// Create issuer
 		iss, err := newIssuer(issuerCfg)
@@ -82,16 +83,4 @@ func newUnsignedIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	}
 
 	return issuer.NewUnsignedIssuer(tokenType), nil
-}
-
-// parseTokenType converts a string to a TokenType
-func parseTokenType(s string) (service.TokenType, error) {
-	switch s {
-	case "transaction_token":
-		return service.TokenTypeTransactionToken, nil
-	case "access_token":
-		return service.TokenTypeAccessToken, nil
-	default:
-		return "", fmt.Errorf("unknown token type: %s (supported: transaction_token, access_token)", s)
-	}
 }
