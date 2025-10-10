@@ -6,7 +6,7 @@ trust_domain = "parsec.example.com"
 grpc_port = 9090
 http_port = 8080
 
-[server.exchange_server.claims_filter]
+[exchange_server.claims_filter]
 type = "stub"
 
 [trust_store]

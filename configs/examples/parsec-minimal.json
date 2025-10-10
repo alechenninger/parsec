@@ -1,14 +1,14 @@
 {
   "server": {
     "grpc_port": 9090,
-    "http_port": 8080,
-    "exchange_server": {
-      "claims_filter": {
-        "type": "stub"
-      }
-    }
+    "http_port": 8080
   },
   "trust_domain": "parsec.example.com",
+  "exchange_server": {
+    "claims_filter": {
+      "type": "stub"
+    }
+  },
   "trust_store": {
     "type": "stub_store",
     "validators": [

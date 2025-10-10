@@ -9,11 +9,12 @@
 server:
   grpc_port: 9090
   http_port: 8080
-  exchange_server:
-    claims_filter:
-      type: stub
 
 trust_domain: "parsec.prod.example.com"
+
+exchange_server:
+  claims_filter:
+    type: stub
 
 # Filtered trust store for production
 trust_store:

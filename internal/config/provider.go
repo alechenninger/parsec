@@ -97,8 +97,8 @@ func (p *Provider) ExchangeServerClaimsFilterRegistry() (server.ClaimsFilterRegi
 
 	// Get claims filter config from exchange server config
 	var claimsFilterCfg ClaimsFilterConfig
-	if p.config.Server.ExchangeServer != nil {
-		claimsFilterCfg = p.config.Server.ExchangeServer.ClaimsFilter
+	if p.config.ExchangeServer != nil {
+		claimsFilterCfg = p.config.ExchangeServer.ClaimsFilter
 	}
 
 	registry, err := NewClaimsFilterRegistry(claimsFilterCfg)
@@ -160,12 +160,12 @@ func (p *Provider) TrustDomain() string {
 // AuthzServerTokenTypes returns the configured token types for ext_authz
 func (p *Provider) AuthzServerTokenTypes() ([]server.TokenTypeSpec, error) {
 	// If no authz server config, return nil (will use defaults)
-	if p.config.Server.AuthzServer == nil || len(p.config.Server.AuthzServer.TokenTypes) == 0 {
+	if p.config.AuthzServer == nil || len(p.config.AuthzServer.TokenTypes) == 0 {
 		return nil, nil
 	}
 
 	var tokenTypes []server.TokenTypeSpec
-	for _, ttCfg := range p.config.Server.AuthzServer.TokenTypes {
+	for _, ttCfg := range p.config.AuthzServer.TokenTypes {
 		if ttCfg.Type == "" {
 			return nil, fmt.Errorf("token type is required")
 		}

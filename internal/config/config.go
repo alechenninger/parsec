@@ -9,6 +9,12 @@ type Config struct {
 	// Used as the audience for all issued tokens
 	TrustDomain string `koanf:"trust_domain"`
 
+	// AuthzServer configuration for ext_authz service
+	AuthzServer *AuthzServerConfig `koanf:"authz_server"`
+
+	// ExchangeServer configuration for token exchange service
+	ExchangeServer *ExchangeServerConfig `koanf:"exchange_server"`
+
 	// TrustStore configuration (validators and filtering)
 	TrustStore TrustStoreConfig `koanf:"trust_store"`
 
@@ -22,19 +28,13 @@ type Config struct {
 	Issuers []IssuerConfig `koanf:"issuers"`
 }
 
-// ServerConfig contains server-specific settings
+// ServerConfig contains network-level server settings
 type ServerConfig struct {
 	// GRPCPort is the port for gRPC services (ext_authz, token exchange)
 	GRPCPort int `koanf:"grpc_port"`
 
 	// HTTPPort is the port for HTTP services (gRPC-gateway transcoding)
 	HTTPPort int `koanf:"http_port"`
-
-	// AuthzServer configuration for ext_authz service
-	AuthzServer *AuthzServerConfig `koanf:"authz_server"`
-
-	// ExchangeServer configuration for token exchange service
-	ExchangeServer *ExchangeServerConfig `koanf:"exchange_server"`
 }
 
 // AuthzServerConfig configures the ext_authz authorization server

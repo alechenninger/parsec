@@ -6,16 +6,16 @@
 server:
   grpc_port: 9090
   http_port: 8080
-  
-  # Exchange server configuration
-  exchange_server:
-    # Claims filter (determines which request_context claims actors can provide)
-    claims_filter:
-      type: stub  # Allow all claims (passthrough)
 
 # Trust domain for this parsec instance
 # Used as the audience (aud) claim in all issued tokens
 trust_domain: "parsec.example.com"
+
+# Exchange server configuration
+exchange_server:
+  # Claims filter (determines which request_context claims actors can provide)
+  claims_filter:
+    type: stub  # Allow all claims (passthrough)
 
 # Trust store configuration
 trust_store:
