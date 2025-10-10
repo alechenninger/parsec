@@ -109,6 +109,8 @@ Mapping rules:
 
 ### Server
 
+Network-level server configuration:
+
 ```yaml
 server:
   grpc_port: 9090  # gRPC server port (ext_authz, token exchange)
@@ -120,6 +122,33 @@ server:
 ```yaml
 trust_domain: "parsec.example.com"  # Audience for issued tokens
 ```
+
+### Authorization Server (ext_authz)
+
+Configure the Envoy ext_authz server behavior (optional):
+
+```yaml
+authz_server:
+  token_types:
+    - type: "urn:ietf:params:oauth:token-type:txn_token"
+      header_name: "Transaction-Token"
+    - type: "urn:ietf:params:oauth:token-type:access_token"
+      header_name: "Authorization"
+```
+
+If not specified, defaults to issuing a transaction token in the `Transaction-Token` header.
+
+### Exchange Server
+
+Configure the token exchange server behavior:
+
+```yaml
+exchange_server:
+  claims_filter:
+    type: stub  # Allow all claims (passthrough)
+```
+
+The claims filter controls which request_context claims actors can provide. This is separate from the network-level `server` configuration.
 
 ### Trust Store
 
@@ -267,18 +296,6 @@ issuers:
 - `stub` - Simple test tokens (includes subject and transaction ID)
 - `unsigned` - Base64-encoded JSON tokens (never expires)
 - `jwt` - Signed JWT tokens (not yet implemented)
-
-### Token Exchange Server
-
-The token exchange server can be configured with claims filtering to control which request_context claims actors can provide:
-
-```yaml
-exchange_server:
-  claims_filter:
-    type: stub  # Allow all claims (passthrough)
-```
-
-This is a top-level configuration section, separate from the network-level `server` settings.
 
 ## Examples
 
