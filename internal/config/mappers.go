@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/mapper"
@@ -51,11 +52,22 @@ func newClaimMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
 
 // newCELMapper creates a CEL-based claim mapper
 func newCELMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
-	if cfg.Script == "" {
-		return nil, fmt.Errorf("cel mapper requires script")
+	script := cfg.Script
+
+	// Load from file if script_file is specified
+	if cfg.ScriptFile != "" {
+		content, err := os.ReadFile(cfg.ScriptFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read script file %s: %w", cfg.ScriptFile, err)
+		}
+		script = string(content)
 	}
 
-	return mapper.NewCELMapper(cfg.Script)
+	if script == "" {
+		return nil, fmt.Errorf("cel mapper requires script or script_file")
+	}
+
+	return mapper.NewCELMapper(script)
 }
 
 // newStubMapper creates a stub claim mapper that returns fixed claims

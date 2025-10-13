@@ -179,8 +179,12 @@ type ClaimMapperConfig struct {
 	// Options: "cel", "passthrough", "request_attributes", "stub"
 	Type string `koanf:"type"`
 
+	// Optional name for the mapper
+	Name string `koanf:"name"`
+
 	// CEL mapper fields
-	Script string `koanf:"script"`
+	ScriptFile string `koanf:"script_file"` // Path to CEL script file
+	Script     string `koanf:"script"`      // Inline CEL script (alternative to ScriptFile)
 
 	// Stub mapper fields
 	Claims map[string]any `koanf:"claims"`
