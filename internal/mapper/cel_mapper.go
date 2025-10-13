@@ -57,6 +57,7 @@ func NewCELMapper(script string) (*CELMapper, error) {
 	// Use a test environment with nil datasources for compilation
 	env, err := cel.NewEnv(
 		celhelpers.MapperInputLibrary(context.Background(), nil, nil),
+		celhelpers.RedHatHelpersLibrary(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
@@ -85,6 +86,7 @@ func (m *CELMapper) Map(ctx context.Context, input *service.MapperInput) (claims
 	// TODO: we could also make this constructed once per application, and use macros to bind convenience functions to input
 	env, err := cel.NewEnv(
 		celhelpers.MapperInputLibrary(ctx, input.DataSourceRegistry, input.DataSourceInput),
+		celhelpers.RedHatHelpersLibrary(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)

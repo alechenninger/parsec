@@ -42,8 +42,10 @@ func newIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		return newUnsignedIssuer(cfg)
 	case "jwt":
 		return nil, fmt.Errorf("jwt issuer not yet implemented")
+	case "rh_identity":
+		return newRHIdentityIssuer(cfg)
 	default:
-		return nil, fmt.Errorf("unknown issuer type: %s (supported: stub, unsigned, jwt)", cfg.Type)
+		return nil, fmt.Errorf("unknown issuer type: %s (supported: stub, unsigned, jwt, rh_identity)", cfg.Type)
 	}
 }
 
@@ -83,4 +85,9 @@ func newUnsignedIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	}
 
 	return issuer.NewUnsignedIssuer(tokenType), nil
+}
+
+// newRHIdentityIssuer creates a Red Hat identity issuer
+func newRHIdentityIssuer(cfg IssuerConfig) (service.Issuer, error) {
+	return issuer.NewRHIdentityIssuer(cfg.TokenType), nil
 }

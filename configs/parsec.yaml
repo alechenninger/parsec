@@ -21,8 +21,12 @@ exchange_server:
 trust_store:
   type: stub_store
   validators:
-    - type: stub_validator
-      credential_types: ["bearer"]
+    - name: redhat-sso
+      type: jwt_validator
+      issuer: "https://sso.redhat.com/auth/realms/redhat-external"
+      jwks_url: "https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/certs"
+      trust_domain: "https://sso.redhat.com/auth/realms/redhat-external"
+      refresh_interval: "15m"
 
 # Data sources for token enrichment (none configured by default)
 data_sources: []
@@ -31,8 +35,10 @@ data_sources: []
 claim_mappers:
   # Transaction context mappers build the "tctx" claim
   transaction_context:
-    - type: passthrough  # Pass through subject claims
-  
+    - type: cel
+      name: redhat-identity-mapper
+      script_file: ./configs/scripts/redhat_identity.cel
+
   # Request context mappers build the "req_ctx" claim
   request_context:
     - type: request_attributes  # Include request path, method, etc.
@@ -43,3 +49,13 @@ issuers:
     type: stub
     issuer_url: "https://parsec.example.com"
     ttl: 5m
+  - token_type: "urn:redhat:params:oauth:token-type:rh-identity"
+    type: rh_identity
+
+# Authorization server configuration (ext_authz)
+authz_server:
+  token_types:
+    - type: "urn:ietf:params:oauth:token-type:txn_token"
+      header_name: "Transaction-Token"
+    - type: "urn:redhat:params:oauth:token-type:rh-identity"
+      header_name: "x-rh-identity"

@@ -12,6 +12,9 @@ const (
 
 	// TokenTypeJWT is a JWT token (generic)
 	TokenTypeJWT TokenType = "urn:ietf:params:oauth:token-type:jwt"
+
+	// TokenTypeRHIdentity is a Red Hat identity token (x-rh-identity format)
+	TokenTypeRHIdentity TokenType = "urn:redhat:params:oauth:token-type:rh-identity"
 )
 
 // Registry manages multiple issuers by token type
