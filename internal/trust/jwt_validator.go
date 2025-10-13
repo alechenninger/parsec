@@ -3,7 +3,6 @@ package trust
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strings"
 	"time"
 
@@ -141,8 +140,16 @@ func (v *JWTValidator) Validate(ctx context.Context, credential Credential) (*Re
 	}
 
 	// Extract all claims into our Claims type
+	// Use AsMap() to get ALL claims from the token (both standard and private)
+	allClaims, err := token.AsMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract token claims: %w", err)
+	}
+
 	claimsMap := make(claims.Claims)
-	maps.Copy(claimsMap, token.PrivateClaims())
+	for k, v := range allClaims {
+		claimsMap[k] = v
+	}
 
 	// Extract audience
 	audiences := token.Audience()

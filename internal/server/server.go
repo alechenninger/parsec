@@ -10,6 +10,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/reflection"
 
 	parsecv1 "github.com/alechenninger/parsec/api/gen/parsec/v1"
 )
@@ -53,6 +54,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// Register services
 	authv3.RegisterAuthorizationServer(s.grpcServer, s.authzServer)
 	parsecv1.RegisterTokenExchangeServer(s.grpcServer, s.exchangeServer)
+
+	// Register reflection service for grpcurl and other tools
+	reflection.Register(s.grpcServer)
 
 	// Start gRPC server
 	grpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.grpcPort))
