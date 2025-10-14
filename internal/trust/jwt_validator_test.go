@@ -288,6 +288,69 @@ func TestJWTValidator(t *testing.T) {
 			t.Errorf("expected custom claim 'value', got %v", result.Claims["custom"])
 		}
 	})
+
+	t.Run("extracts all claims including standard JWT claims", func(t *testing.T) {
+		// This test verifies the fix where we use AsMap() to get ALL claims,
+		// not just PrivateClaims(). Standard JWT claims like sub, iss, exp, iat
+		// should be available in the Claims map for transformation.
+		validator, err := NewJWTValidator(JWTValidatorConfig{
+			Issuer:      "https://test-issuer.example.com",
+			JWKSURL:     jwksURL,
+			TrustDomain: "test-domain",
+		})
+		if err != nil {
+			t.Fatalf("failed to create validator: %v", err)
+		}
+
+		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
+			"iss":    "https://test-issuer.example.com",
+			"sub":    "user@example.com",
+			"aud":    "test-audience",
+			"email":  "user@example.com",
+			"groups": []string{"admins", "users"},
+			"custom": "custom-value",
+		})
+
+		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
+
+		result, err := validator.Validate(ctx, cred)
+		if err != nil {
+			t.Fatalf("validation failed: %v", err)
+		}
+
+		// Verify standard claims are in the Claims map
+		if result.Claims["sub"] != "user@example.com" {
+			t.Errorf("expected 'sub' claim 'user@example.com', got %v", result.Claims["sub"])
+		}
+		if result.Claims["iss"] != "https://test-issuer.example.com" {
+			t.Errorf("expected 'iss' claim 'https://test-issuer.example.com', got %v", result.Claims["iss"])
+		}
+		if result.Claims["aud"] == nil {
+			t.Error("expected 'aud' claim to be present")
+		}
+		if result.Claims["exp"] == nil {
+			t.Error("expected 'exp' claim to be present")
+		}
+		if result.Claims["iat"] == nil {
+			t.Error("expected 'iat' claim to be present")
+		}
+
+		// Verify custom claims are also present
+		if result.Claims["email"] != "user@example.com" {
+			t.Errorf("expected 'email' claim 'user@example.com', got %v", result.Claims["email"])
+		}
+		if result.Claims["custom"] != "custom-value" {
+			t.Errorf("expected 'custom' claim 'custom-value', got %v", result.Claims["custom"])
+		}
+
+		// Verify groups claim (array type)
+		groups, ok := result.Claims["groups"].([]interface{})
+		if !ok {
+			t.Errorf("expected 'groups' claim to be an array, got %T", result.Claims["groups"])
+		} else if len(groups) != 2 {
+			t.Errorf("expected 'groups' to have 2 elements, got %d", len(groups))
+		}
+	})
 }
 
 func TestJWTValidatorConfig(t *testing.T) {

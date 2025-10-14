@@ -3,6 +3,7 @@ package trust
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -123,20 +124,10 @@ func (v *JWTValidator) Validate(ctx context.Context, credential Credential) (*Re
 		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
 	}
 
-	// Extract standard claims
+	// Ensure there is a subject
 	subject := token.Subject()
 	if subject == "" {
 		return nil, fmt.Errorf("%w: missing subject claim", ErrInvalidToken)
-	}
-
-	issuer := token.Issuer()
-	if issuer != v.issuer {
-		return nil, fmt.Errorf("%w: issuer mismatch: got %q, expected %q", ErrInvalidToken, issuer, v.issuer)
-	}
-
-	// Check expiration
-	if token.Expiration().Before(time.Now()) {
-		return nil, ErrExpiredToken
 	}
 
 	// Extract all claims into our Claims type
@@ -146,10 +137,9 @@ func (v *JWTValidator) Validate(ctx context.Context, credential Credential) (*Re
 		return nil, fmt.Errorf("failed to extract token claims: %w", err)
 	}
 
+	// TODO: Probably should add a ClaimsFilter to validator config so we can configure trust on a per-claim basis
 	claimsMap := make(claims.Claims)
-	for k, v := range allClaims {
-		claimsMap[k] = v
-	}
+	maps.Copy(claimsMap, allClaims)
 
 	// Extract audience
 	audiences := token.Audience()
@@ -164,7 +154,7 @@ func (v *JWTValidator) Validate(ctx context.Context, credential Credential) (*Re
 
 	return &Result{
 		Subject:     subject,
-		Issuer:      issuer,
+		Issuer:      v.issuer,
 		TrustDomain: v.trustDomain,
 		Claims:      claimsMap,
 		ExpiresAt:   token.Expiration(),
