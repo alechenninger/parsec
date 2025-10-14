@@ -116,6 +116,8 @@ func (c *OIDCCredential) Type() CredentialType {
 
 // MTLSCredential represents client certificate authentication
 type MTLSCredential struct {
+	// TODO: use strongly typed fields that go gives us rather than raw bytes
+
 	// Certificate is the client certificate (DER encoded)
 	Certificate []byte
 
