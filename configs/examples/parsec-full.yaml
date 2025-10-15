@@ -117,33 +117,6 @@ data_sources:
   #     type: in_memory
   #     ttl: 5m
 
-# Claim mappers
-claim_mappers:
-  # Transaction context: combine subject claims with enriched data
-  transaction_context:
-    # Start with subject claims
-    - type: passthrough
-    
-    # Add enriched claims from data sources
-    - type: cel
-      script: |
-        {
-          "roles": datasource("user_roles").roles,
-          "region": datasource("geo").region,
-          "env": actor.trust_domain == "prod.example.com" ? "production" : "development"
-        }
-  
-  # Request context: request attributes plus conditional claims
-  request_context:
-    - type: request_attributes
-    
-    - type: cel
-      script: |
-        {
-          "is_admin_request": request.path.startsWith("/admin/"),
-          "request_time": string(request.time)
-        }
-
 # Token issuers
 issuers:
   # Transaction token issuer (unsigned for development)
@@ -151,11 +124,41 @@ issuers:
     type: unsigned
     issuer_url: "https://parsec.example.com"
     ttl: 5m
+    # Claim mappers combine subject claims with enriched data
+    claim_mappers:
+      # Start with subject claims
+      - type: passthrough
+      
+      # Add enriched claims from data sources
+      - type: cel
+        script: |
+          {
+            "roles": datasource("user_roles").roles,
+            "region": datasource("geo").region,
+            "env": actor.trust_domain == "prod.example.com" ? "production" : "development"
+          }
   
-  # Access token issuer (stub for testing)
+  # Access token issuer (stub for testing) - transaction token style
   - token_type: "urn:ietf:params:oauth:token-type:access_token"
     type: stub
     issuer_url: "https://parsec.example.com"
     ttl: 1h
-    include_request_context: true
+    # Transaction context mappers
+    transaction_context:
+      - type: passthrough
+      - type: cel
+        script: |
+          {
+            "roles": datasource("user_roles").roles,
+            "region": datasource("geo").region
+          }
+    # Request context mappers
+    request_context:
+      - type: request_attributes
+      - type: cel
+        script: |
+          {
+            "is_admin_request": request.path.startsWith("/admin/"),
+            "request_time": string(request.time)
+          }
 

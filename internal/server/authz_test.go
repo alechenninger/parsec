@@ -26,16 +26,16 @@ func TestAuthzServer_Check(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(trustStore, tokenService, nil)
 
@@ -401,16 +401,16 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
 
@@ -614,16 +614,16 @@ func TestAuthzServer_WithActorFilteringByRequestPath(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
 

@@ -31,26 +31,30 @@ trust_store:
 # Data sources for token enrichment (none configured by default)
 data_sources: []
 
-# Claim mappers for building token contexts
-claim_mappers:
-  # Transaction context mappers build the "tctx" claim
-  transaction_context:
-    - type: cel
-      name: redhat-identity-mapper
-      script_file: ./configs/scripts/redhat_identity.cel
-
-  # Request context mappers build the "req_ctx" claim
-  request_context:
-    - type: request_attributes  # Include request path, method, etc.
-
 # Token issuers
 issuers:
+  # Transaction token issuer (stub for testing)
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: stub
     issuer_url: "https://parsec.example.com"
     ttl: 5m
+    # Transaction context mappers build the "tctx" claim
+    transaction_context:
+      - type: cel
+        name: redhat-identity-mapper
+        script_file: ./configs/scripts/redhat_identity.cel
+    # Request context mappers build the "req_ctx" claim
+    request_context:
+      - type: request_attributes  # Include request path, method, etc.
+
+  # Red Hat identity token issuer
   - token_type: "urn:redhat:params:oauth:token-type:rh-identity"
     type: rh_identity
+    # Claim mappers build the identity structure
+    claim_mappers:
+      - type: cel
+        name: redhat-identity-mapper
+        script_file: ./configs/scripts/redhat_identity.cel
 
 # Authorization server configuration (ext_authz)
 authz_server:

@@ -16,16 +16,14 @@ type = "stub_store"
 type = "stub_validator"
 credential_types = ["bearer"]
 
-[claim_mappers]
-
-[[claim_mappers.transaction_context]]
-type = "passthrough"
-
-[[claim_mappers.request_context]]
-type = "request_attributes"
-
 [[issuers]]
 token_type = "urn:ietf:params:oauth:token-type:txn_token"
 type = "stub"
 issuer_url = "https://parsec.example.com"
 ttl = "5m"
+
+[[issuers.transaction_context]]
+type = "passthrough"
+
+[[issuers.request_context]]
+type = "request_attributes"

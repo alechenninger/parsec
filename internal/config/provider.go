@@ -16,7 +16,6 @@ type Provider struct {
 	// Lazily constructed components (cached after first call)
 	trustStore           trust.Store
 	dataSourceRegistry   *service.DataSourceRegistry
-	claimMapperRegistry  *service.ClaimMapperRegistry
 	issuerRegistry       service.Registry
 	claimsFilterRegistry server.ClaimsFilterRegistry
 	tokenService         *service.TokenService
@@ -56,21 +55,6 @@ func (p *Provider) DataSourceRegistry() (*service.DataSourceRegistry, error) {
 	}
 
 	p.dataSourceRegistry = registry
-	return registry, nil
-}
-
-// ClaimMapperRegistry returns the configured claim mapper registry
-func (p *Provider) ClaimMapperRegistry() (*service.ClaimMapperRegistry, error) {
-	if p.claimMapperRegistry != nil {
-		return p.claimMapperRegistry, nil
-	}
-
-	registry, err := NewClaimMapperRegistry(p.config.ClaimMappers)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create claim mapper registry: %w", err)
-	}
-
-	p.claimMapperRegistry = registry
 	return registry, nil
 }
 
@@ -122,11 +106,6 @@ func (p *Provider) TokenService() (*service.TokenService, error) {
 		return nil, err
 	}
 
-	claimMapperRegistry, err := p.ClaimMapperRegistry()
-	if err != nil {
-		return nil, err
-	}
-
 	issuerRegistry, err := p.IssuerRegistry()
 	if err != nil {
 		return nil, err
@@ -136,7 +115,6 @@ func (p *Provider) TokenService() (*service.TokenService, error) {
 	tokenService := service.NewTokenService(
 		p.config.TrustDomain,
 		dataSourceRegistry,
-		claimMapperRegistry,
 		issuerRegistry,
 	)
 

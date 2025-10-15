@@ -25,16 +25,16 @@ func setupTestDependencies() (trust.Store, *service.TokenService) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	return trustStore, tokenService
 }

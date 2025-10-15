@@ -2,9 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/mapper"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
@@ -65,29 +68,106 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		ttl = duration
 	}
 
-	// Create options
-	var opts []issuer.StubIssuerOption
-	if cfg.IncludeRequestContext {
-		opts = append(opts, issuer.WithIncludeRequestContext(true))
+	// Create transaction context mappers
+	var txnMappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.TransactionContextMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create transaction context mapper %d: %w", i, err)
+		}
+		txnMappers = append(txnMappers, m)
 	}
 
-	return issuer.NewStubIssuer(cfg.IssuerURL, ttl, opts...), nil
+	// Create request context mappers
+	var reqMappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.RequestContextMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request context mapper %d: %w", i, err)
+		}
+		reqMappers = append(reqMappers, m)
+	}
+
+	return issuer.NewStubIssuer(cfg.IssuerURL, ttl, txnMappers, reqMappers), nil
 }
 
 // newUnsignedIssuer creates an unsigned issuer (for development/testing)
 func newUnsignedIssuer(cfg IssuerConfig) (service.Issuer, error) {
-	// UnsignedIssuer only needs the token type
-	// Note: The IssuerURL and TTL fields are ignored for unsigned issuers
-	// as they produce tokens that never expire
-	tokenType := "urn:ietf:params:oauth:token-type:txn_token"
-	if cfg.TokenType == "access_token" {
-		tokenType = "urn:ietf:params:oauth:token-type:access_token"
+	// Create claim mappers
+	var mappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.ClaimMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create claim mapper %d: %w", i, err)
+		}
+		mappers = append(mappers, m)
 	}
 
-	return issuer.NewUnsignedIssuer(tokenType), nil
+	return issuer.NewUnsignedIssuer(cfg.TokenType, mappers), nil
 }
 
 // newRHIdentityIssuer creates a Red Hat identity issuer
 func newRHIdentityIssuer(cfg IssuerConfig) (service.Issuer, error) {
-	return issuer.NewRHIdentityIssuer(cfg.TokenType), nil
+	// Create claim mappers
+	var mappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.ClaimMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create claim mapper %d: %w", i, err)
+		}
+		mappers = append(mappers, m)
+	}
+
+	return issuer.NewRHIdentityIssuer(cfg.TokenType, mappers), nil
+}
+
+// newClaimMapper creates a claim mapper from configuration
+func newClaimMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
+	switch cfg.Type {
+	case "cel":
+		return newCELMapper(cfg)
+	case "passthrough":
+		return service.NewPassthroughSubjectMapper(), nil
+	case "request_attributes":
+		return service.NewRequestAttributesMapper(), nil
+	case "stub":
+		return newStubMapper(cfg)
+	default:
+		return nil, fmt.Errorf("unknown claim mapper type: %s (supported: cel, passthrough, request_attributes, stub)", cfg.Type)
+	}
+}
+
+// newCELMapper creates a CEL-based claim mapper
+func newCELMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
+	script := cfg.Script
+
+	// Load from file if script_file is specified
+	if cfg.ScriptFile != "" {
+		content, err := os.ReadFile(cfg.ScriptFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read script file %s: %w", cfg.ScriptFile, err)
+		}
+		script = string(content)
+	}
+
+	if script == "" {
+		return nil, fmt.Errorf("cel mapper requires script or script_file")
+	}
+
+	return mapper.NewCELMapper(script)
+}
+
+// newStubMapper creates a stub claim mapper that returns fixed claims
+func newStubMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
+	if cfg.Claims == nil {
+		return nil, fmt.Errorf("stub mapper requires claims")
+	}
+
+	// Convert map[string]any to claims.Claims
+	fixedClaims := make(claims.Claims)
+	for k, v := range cfg.Claims {
+		fixedClaims[k] = v
+	}
+
+	return service.NewStubClaimMapper(fixedClaims), nil
 }

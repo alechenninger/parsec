@@ -6,65 +6,89 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
 // StubIssuer is a simple stub issuer for testing
 // It generates simple token strings without actual JWT signing
 type StubIssuer struct {
-	issuerURL             string
-	ttl                   time.Duration
-	includeRequestContext bool
-}
-
-// StubIssuerOption is a functional option“ for configuring a StubIssuer
-type StubIssuerOption func(*StubIssuer)
-
-// WithIncludeRequestContext configures the stub issuer to include request context in the token
-// This is useful for testing that request attributes are properly filtered
-func WithIncludeRequestContext(include bool) StubIssuerOption {
-	return func(s *StubIssuer) {
-		s.includeRequestContext = include
-	}
+	issuerURL                 string
+	ttl                       time.Duration
+	transactionContextMappers []service.ClaimMapper
+	requestContextMappers     []service.ClaimMapper
 }
 
 // NewStubIssuer creates a new stub issuer
-func NewStubIssuer(issuerURL string, ttl time.Duration, opts ...StubIssuerOption) *StubIssuer {
-	s := &StubIssuer{
-		issuerURL: issuerURL,
-		ttl:       ttl,
+func NewStubIssuer(
+	issuerURL string,
+	ttl time.Duration,
+	transactionContextMappers []service.ClaimMapper,
+	requestContextMappers []service.ClaimMapper,
+) *StubIssuer {
+	return &StubIssuer{
+		issuerURL:                 issuerURL,
+		ttl:                       ttl,
+		transactionContextMappers: transactionContextMappers,
+		requestContextMappers:     requestContextMappers,
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
 }
 
 // Issue implements the Issuer interface
-func (i *StubIssuer) Issue(ctx context.Context, tokenCtx *service.TokenContext) (*service.Token, error) {
+func (i *StubIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
+	// Build data source input
+	dataSourceInput := &service.DataSourceInput{
+		Subject:           issueCtx.Subject,
+		Actor:             issueCtx.Actor,
+		RequestAttributes: issueCtx.RequestAttributes,
+	}
+
+	// Build mapper input
+	mapperInput := &service.MapperInput{
+		Subject:            issueCtx.Subject,
+		Actor:              issueCtx.Actor,
+		RequestAttributes:  issueCtx.RequestAttributes,
+		DataSourceRegistry: issueCtx.DataSourceRegistry,
+		DataSourceInput:    dataSourceInput,
+	}
+
+	// Apply transaction context mappers
+	transactionContext := make(claims.Claims)
+	for _, mapper := range i.transactionContextMappers {
+		mapperClaims, err := mapper.Map(ctx, mapperInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map transaction context: %w", err)
+		}
+		transactionContext.Merge(mapperClaims)
+	}
+
+	// Apply request context mappers
+	requestContext := make(claims.Claims)
+	for _, mapper := range i.requestContextMappers {
+		mapperClaims, err := mapper.Map(ctx, mapperInput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map request context: %w", err)
+		}
+		requestContext.Merge(mapperClaims)
+	}
+
 	now := time.Now()
 	expiresAt := now.Add(i.ttl)
 
 	// Generate a simple token ID with microsecond precision for uniqueness
 	txnID := fmt.Sprintf("txn-%d", now.UnixNano()/1000)
 
-	// For stub, just create a simple token string
-	// Include subject from the token context
-	subject := tokenCtx.Subject.Subject
+	// Include subject from the issue context
+	subject := issueCtx.Subject.Subject
 
-	var tokenValue string
-	if i.includeRequestContext {
-		// Encode the request context as JSON so tests can verify filtering
-		requestContextJSON, err := json.Marshal(tokenCtx.RequestContext)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request context: %w", err)
-		}
-		// Format: stub-txn-token.{subject}.{txnID}.{requestContextJSON}
-		tokenValue = fmt.Sprintf("stub-txn-token.%s.%s.%s", subject, txnID, string(requestContextJSON))
-	} else {
-		// Simple format without request context
-		tokenValue = fmt.Sprintf("stub-txn-token.%s.%s", subject, txnID)
+	// Encode the request context as JSON so tests can verify filtering
+	requestContextJSON, err := json.Marshal(requestContext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request context: %w", err)
 	}
+
+	// Format: stub-txn-token.{subject}.{txnID}.{requestContextJSON}
+	tokenValue := fmt.Sprintf("stub-txn-token.%s.%s.%s", subject, txnID, string(requestContextJSON))
 
 	return &service.Token{
 		Value:     tokenValue,

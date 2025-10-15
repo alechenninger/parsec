@@ -19,24 +19,22 @@
     ]
   },
   "data_sources": [],
-  "claim_mappers": {
-    "transaction_context": [
-      {
-        "type": "passthrough"
-      }
-    ],
-    "request_context": [
-      {
-        "type": "request_attributes"
-      }
-    ]
-  },
   "issuers": [
     {
       "token_type": "urn:ietf:params:oauth:token-type:txn_token",
       "type": "stub",
       "issuer_url": "https://parsec.example.com",
-      "ttl": "5m"
+      "ttl": "5m",
+      "transaction_context": [
+        {
+          "type": "passthrough"
+        }
+      ],
+      "request_context": [
+        {
+          "type": "request_attributes"
+        }
+      ]
     }
   ]
 }

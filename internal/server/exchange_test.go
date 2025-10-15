@@ -49,16 +49,16 @@ func TestExchangeServer_WithActorFiltering(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(filteredStore, tokenService, claimsFilterRegistry)
@@ -280,15 +280,15 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
 
 	// Use a custom trust domain for this test
 	issuerRegistry := service.NewSimpleRegistry()
-	prodIssuer := issuer.NewStubIssuer("https://prod.example.com", 5*time.Minute)
+	// Create mappers for the issuer
+	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	prodIssuer := issuer.NewStubIssuer("https://prod.example.com", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, prodIssuer)
-	tokenService := service.NewTokenService("prod.example.com", dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService("prod.example.com", dataSourceRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(filteredStore, tokenService, claimsFilterRegistry)
@@ -312,9 +312,11 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 
 	// Use a different token service for dev with matching trust domain
 	devIssuerRegistry := service.NewSimpleRegistry()
-	devIssuer := issuer.NewStubIssuer("https://dev.example.com", 5*time.Minute)
+	devTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	devReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	devIssuer := issuer.NewStubIssuer("https://dev.example.com", 5*time.Minute, devTxnMappers, devReqMappers)
 	devIssuerRegistry.Register(service.TokenTypeTransactionToken, devIssuer)
-	devTokenService := service.NewTokenService("dev.example.com", dataSourceRegistry, claimMapperRegistry, devIssuerRegistry)
+	devTokenService := service.NewTokenService("dev.example.com", dataSourceRegistry, devIssuerRegistry)
 	devExchangeServer := NewExchangeServer(filteredStore, devTokenService, claimsFilterRegistry)
 
 	t.Run("dev audience allows dev validator", func(t *testing.T) {
@@ -338,9 +340,11 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 		// Use prod trust domain but request a different audience
 		// This will fail the audience check
 		wrongIssuerRegistry := service.NewSimpleRegistry()
-		wrongIssuer := issuer.NewStubIssuer("https://wrong.example.com", 5*time.Minute)
+		wrongTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		wrongReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+		wrongIssuer := issuer.NewStubIssuer("https://wrong.example.com", 5*time.Minute, wrongTxnMappers, wrongReqMappers)
 		wrongIssuerRegistry.Register(service.TokenTypeTransactionToken, wrongIssuer)
-		wrongTokenService := service.NewTokenService("wrong.example.com", dataSourceRegistry, claimMapperRegistry, wrongIssuerRegistry)
+		wrongTokenService := service.NewTokenService("wrong.example.com", dataSourceRegistry, wrongIssuerRegistry)
 		wrongExchangeServer := NewExchangeServer(filteredStore, wrongTokenService, claimsFilterRegistry)
 
 		req := &parsecv1.TokenExchangeRequest{
@@ -386,22 +390,21 @@ func TestExchangeServer_ActorPassedToTokenIssuance(t *testing.T) {
 
 	// Setup token service
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
 
-	// Add a mapper that includes actor information
+	// Create mappers that include actor information
 	actorMapper, err := mapper.NewCELMapper(`actor != null ? {"actor_subject": actor.subject, "actor_trust_domain": actor.trust_domain} : {}`)
 	if err != nil {
 		t.Fatalf("failed to create actor mapper: %v", err)
 	}
-	claimMapperRegistry.RegisterTransactionContext(actorMapper)
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
+	txnMappers := []service.ClaimMapper{actorMapper}
+	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
+	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
 	claimsFilterRegistry := NewStubClaimsFilterRegistry()
 	exchangeServer := NewExchangeServer(store, tokenService, claimsFilterRegistry)
@@ -447,29 +450,27 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 	})
 	store.AddValidator(validator)
 
-	// Setup token service
+	// Setup token service for sub-tests that need it
 	dataSourceRegistry := service.NewDataSourceRegistry()
-	claimMapperRegistry := service.NewClaimMapperRegistry()
-	claimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-	claimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
-
-	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute)
-	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
-
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, claimMapperRegistry, issuerRegistry)
+
+	// Create a simple token service for sub-tests
+	simpleIssuerRegistry := service.NewSimpleRegistry()
+	simpleTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+	simpleReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+	simpleIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, simpleTxnMappers, simpleReqMappers)
+	simpleIssuerRegistry.Register(service.TokenTypeTransactionToken, simpleIssuer)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, simpleIssuerRegistry)
 
 	t.Run("passthrough filter allows all claims", func(t *testing.T) {
 		// Setup token service with stub issuer that includes request context in token
-		localClaimMapperRegistry := service.NewClaimMapperRegistry()
-		localClaimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-		localClaimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 		localIssuerRegistry := service.NewSimpleRegistry()
-		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, issuer.WithIncludeRequestContext(true))
+		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
-		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
+		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localIssuerRegistry)
 
 		// Use passthrough filter that allows all claims
 		claimsFilterRegistry := NewStubClaimsFilterRegistry()
@@ -528,14 +529,13 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 
 	t.Run("allow list filter only allows specified claims", func(t *testing.T) {
 		// Setup token service with stub issuer that includes request context in token
-		localClaimMapperRegistry := service.NewClaimMapperRegistry()
-		localClaimMapperRegistry.RegisterTransactionContext(service.NewPassthroughSubjectMapper())
-		localClaimMapperRegistry.RegisterRequestContext(service.NewRequestAttributesMapper())
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 		localIssuerRegistry := service.NewSimpleRegistry()
-		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, issuer.WithIncludeRequestContext(true))
+		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
 		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
-		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localClaimMapperRegistry, localIssuerRegistry)
+		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localIssuerRegistry)
 
 		// Use allow list filter that only allows method and path
 		allowListFilter := NewAllowListClaimsFilterRegistry([]string{"method", "path"})

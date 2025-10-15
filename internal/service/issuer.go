@@ -6,33 +6,30 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
-// TokenContext contains all information needed to mint a token
-// This represents the processed, trusted data ready to be signed
-type TokenContext struct {
+// IssueContext contains the base information needed to mint any token
+// This includes standard fields from token exchange that are always relevant
+type IssueContext struct {
 	// Subject identity (attested claims from validated credential)
 	Subject *trust.Result
 
 	// Actor identity (attested claims from actor credential, e.g., mTLS)
 	Actor *trust.Result
 
-	// TransactionContext goes into the token as "tctx" claim
-	// This is the result of applying claim mappers and data sources
-	// Per draft-ietf-oauth-transaction-tokens, this replaces the older "azd" claim
-	TransactionContext claims.Claims
+	// RequestAttributes contains information about the request
+	RequestAttributes *request.RequestAttributes
 
-	// RequestContext goes into the token as "req_ctx" claim
-	// Contains information about the request being authorized
-	RequestContext claims.Claims
-
-	// Audience for the token (aud claim)
-	// This is the trust domain
+	// Audience for the token (aud claim) - typically the trust domain
 	Audience string
 
 	// Scope for the token (scope claim)
 	Scope string
+
+	// DataSourceRegistry provides access to data sources for lazy fetching
+	DataSourceRegistry *DataSourceRegistry
 }
 
 // PublicKey represents a public key for token verification
@@ -51,12 +48,12 @@ type PublicKey struct {
 	Use string
 }
 
-// Issuer creates signed tokens from prepared token context
-// The issuer is responsible for cryptographic operations and token formatting
+// Issuer creates signed tokens from issue context
+// The issuer is responsible for claim mapping, cryptographic operations, and token formatting
 type Issuer interface {
-	// Issue creates a signed token from the provided context
-	// The token context contains all trusted, processed claims ready to be minted
-	Issue(ctx context.Context, tokenCtx *TokenContext) (*Token, error)
+	// Issue creates a token from the provided context
+	// The issuer handles all claim mapping internally based on its configuration
+	Issue(ctx context.Context, issueCtx *IssueContext) (*Token, error)
 
 	// PublicKeys returns the set of public keys for verifying tokens issued by this issuer
 	// Returns an empty slice for unsigned tokens (e.g., stub implementations)

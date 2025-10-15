@@ -21,9 +21,6 @@ type Config struct {
 	// DataSources for token enrichment
 	DataSources []DataSourceConfig `koanf:"data_sources"`
 
-	// ClaimMappers configuration for transaction and request contexts
-	ClaimMappers ClaimMappersConfig `koanf:"claim_mappers"`
-
 	// Issuers configuration for different token types
 	Issuers []IssuerConfig `koanf:"issuers"`
 }
@@ -164,15 +161,6 @@ type CachingConfig struct {
 	CacheSize int64  `koanf:"cache_size"` // Cache size in bytes
 }
 
-// ClaimMappersConfig configures claim mappers for transaction and request contexts
-type ClaimMappersConfig struct {
-	// TransactionContext mappers build the "tctx" claim
-	TransactionContext []ClaimMapperConfig `koanf:"transaction_context"`
-
-	// RequestContext mappers build the "req_ctx" claim
-	RequestContext []ClaimMapperConfig `koanf:"request_context"`
-}
-
 // ClaimMapperConfig configures a claim mapper
 type ClaimMapperConfig struct {
 	// Type selects the mapper implementation
@@ -200,7 +188,7 @@ type IssuerConfig struct {
 	TokenType string `koanf:"token_type"`
 
 	// Type selects the issuer implementation
-	// Options: "stub", "unsigned", "jwt"
+	// Options: "stub", "unsigned", "jwt", "rh_identity"
 	Type string `koanf:"type"`
 
 	// Common fields
@@ -212,7 +200,16 @@ type IssuerConfig struct {
 	SigningKeyID string `koanf:"signing_key_id"` // Key ID (kid)
 	SigningAlg   string `koanf:"signing_alg"`    // Algorithm (RS256, ES256, etc.)
 
-	// Stub issuer fields
+	// Transaction token issuer fields (stub, jwt types)
+	// These mappers build the "tctx" and "req_ctx" claims
+	TransactionContextMappers []ClaimMapperConfig `koanf:"transaction_context"`
+	RequestContextMappers     []ClaimMapperConfig `koanf:"request_context"`
+
+	// Simple issuer fields (unsigned, rh_identity types)
+	// These mappers build the token's claim structure
+	ClaimMappers []ClaimMapperConfig `koanf:"claim_mappers"`
+
+	// Stub issuer fields (deprecated - use mappers instead)
 	IncludeRequestContext bool `koanf:"include_request_context"`
 }
 

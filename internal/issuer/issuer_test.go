@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
@@ -15,23 +14,21 @@ func TestStubIssuer(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("issues token successfully", func(t *testing.T) {
-		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute, txnMappers, reqMappers)
 
-		tokenCtx := &service.TokenContext{
+		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{
 				Subject:     "user@example.com",
 				Issuer:      "https://idp.example.com",
 				TrustDomain: "example-domain",
 			},
-			TransactionContext: claims.Claims{},
-			RequestContext: claims.Claims{
-				"method": "GET",
-				"path":   "/api/resource",
-			},
-			Audience: "test-audience",
+			Audience:           "test-audience",
+			DataSourceRegistry: service.NewDataSourceRegistry(),
 		}
 
-		token, err := issuer.Issue(ctx, tokenCtx)
+		token, err := issuer.Issue(ctx, issueCtx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -48,24 +45,25 @@ func TestStubIssuer(t *testing.T) {
 			t.Errorf("expected txn_token type, got %s", token.Type)
 		}
 
-		if strings.Contains(token.Value, tokenCtx.Subject.Subject) == false {
+		if strings.Contains(token.Value, issueCtx.Subject.Subject) == false {
 			t.Error("expected token to contain subject")
 		}
 	})
 
 	t.Run("token expires after configured TTL", func(t *testing.T) {
 		ttl := 10 * time.Minute
-		issuer := NewStubIssuer("https://parsec.example.com", ttl)
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+		issuer := NewStubIssuer("https://parsec.example.com", ttl, txnMappers, reqMappers)
 
-		tokenCtx := &service.TokenContext{
+		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{
 				Subject: "test-user",
 			},
-			TransactionContext: claims.Claims{},
-			RequestContext:     claims.Claims{},
+			DataSourceRegistry: service.NewDataSourceRegistry(),
 		}
 
-		token, err := issuer.Issue(ctx, tokenCtx)
+		token, err := issuer.Issue(ctx, issueCtx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -81,7 +79,9 @@ func TestStubIssuer(t *testing.T) {
 
 	t.Run("returns empty public keys for unsigned tokens", func(t *testing.T) {
 		issuerURL := "https://parsec.example.com"
-		issuer := NewStubIssuer(issuerURL, 5*time.Minute)
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+		issuer := NewStubIssuer(issuerURL, 5*time.Minute, txnMappers, reqMappers)
 
 		keys, err := issuer.PublicKeys(ctx)
 		if err != nil {
@@ -99,19 +99,20 @@ func TestStubIssuer(t *testing.T) {
 	})
 
 	t.Run("generates unique token values", func(t *testing.T) {
-		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute)
+		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
+		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
+		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute, txnMappers, reqMappers)
 
-		tokenCtx := &service.TokenContext{
+		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{
 				Subject: "test-user",
 			},
-			TransactionContext: claims.Claims{},
-			RequestContext:     claims.Claims{},
+			DataSourceRegistry: service.NewDataSourceRegistry(),
 		}
 
-		token1, _ := issuer.Issue(ctx, tokenCtx)
+		token1, _ := issuer.Issue(ctx, issueCtx)
 		time.Sleep(10 * time.Millisecond) // Ensure different timestamp
-		token2, _ := issuer.Issue(ctx, tokenCtx)
+		token2, _ := issuer.Issue(ctx, issueCtx)
 
 		if token1.Value == token2.Value {
 			t.Error("expected unique token values")

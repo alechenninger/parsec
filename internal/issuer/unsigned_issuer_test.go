@@ -14,27 +14,27 @@ import (
 
 func TestUnsignedIssuer_Issue(t *testing.T) {
 	tokenType := "urn:example:token-type:unsigned"
-	issuer := NewUnsignedIssuer(tokenType)
 
-	// Create test transaction context
-	transactionContext := claims.Claims{
+	// Create a mapper that returns test claims
+	testMapper := service.NewStubClaimMapper(claims.Claims{
 		"user_id":     "user-123",
 		"department":  "engineering",
 		"permissions": []string{"read", "write"},
 		"level":       5,
-	}
+	})
+	issuer := NewUnsignedIssuer(tokenType, []service.ClaimMapper{testMapper})
 
-	tokenCtx := &service.TokenContext{
+	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},
-		TransactionContext: transactionContext,
 		Audience:           "test-audience",
 		Scope:              "test-scope",
+		DataSourceRegistry: service.NewDataSourceRegistry(),
 	}
 
 	// Issue the token
-	token, err := issuer.Issue(context.Background(), tokenCtx)
+	token, err := issuer.Issue(context.Background(), issueCtx)
 	if err != nil {
 		t.Fatalf("Issue() failed: %v", err)
 	}
@@ -97,18 +97,20 @@ func TestUnsignedIssuer_Issue(t *testing.T) {
 }
 
 func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
-	issuer := NewUnsignedIssuer("test-token-type")
+	// Create a mapper that returns empty claims
+	testMapper := service.NewStubClaimMapper(claims.Claims{})
+	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{testMapper})
 
-	tokenCtx := &service.TokenContext{
+	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},
-		TransactionContext: claims.Claims{},
 		Audience:           "test-audience",
+		DataSourceRegistry: service.NewDataSourceRegistry(),
 	}
 
 	// Issue the token
-	token, err := issuer.Issue(context.Background(), tokenCtx)
+	token, err := issuer.Issue(context.Background(), issueCtx)
 	if err != nil {
 		t.Fatalf("Issue() failed: %v", err)
 	}
@@ -132,18 +134,19 @@ func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
 }
 
 func TestUnsignedIssuer_Issue_NilTransactionContext(t *testing.T) {
-	issuer := NewUnsignedIssuer("test-token-type")
+	// No mappers means nil claims
+	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{})
 
-	tokenCtx := &service.TokenContext{
+	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
 			Subject: "test-subject",
 		},
-		TransactionContext: nil,
 		Audience:           "test-audience",
+		DataSourceRegistry: service.NewDataSourceRegistry(),
 	}
 
 	// Issue the token
-	token, err := issuer.Issue(context.Background(), tokenCtx)
+	token, err := issuer.Issue(context.Background(), issueCtx)
 	if err != nil {
 		t.Fatalf("Issue() failed: %v", err)
 	}
@@ -154,14 +157,14 @@ func TestUnsignedIssuer_Issue_NilTransactionContext(t *testing.T) {
 		t.Fatalf("Failed to base64 decode token: %v", err)
 	}
 
-	// Should be "null" in JSON
-	if string(decodedJSON) != "null" {
-		t.Errorf("Expected null, got %s", string(decodedJSON))
+	// Should be empty object in JSON
+	if string(decodedJSON) != "{}" {
+		t.Errorf("Expected {}, got %s", string(decodedJSON))
 	}
 }
 
 func TestUnsignedIssuer_PublicKeys(t *testing.T) {
-	issuer := NewUnsignedIssuer("test-token-type")
+	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{})
 
 	keys, err := issuer.PublicKeys(context.Background())
 	if err != nil {

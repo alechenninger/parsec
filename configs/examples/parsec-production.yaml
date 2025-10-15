@@ -74,26 +74,6 @@ data_sources:
       group_name: "org-cache"
       cache_size: 104857600  # 100 MB
 
-# Claim mappers
-claim_mappers:
-  transaction_context:
-    # Include subject identity
-    - type: passthrough
-    
-    # Add permissions and org context
-    - type: cel
-      script: |
-        {
-          "sub": subject.subject,
-          "permissions": datasource("user_permissions").permissions,
-          "org_id": datasource("org_metadata").org_id,
-          "org_tier": datasource("org_metadata").tier
-        }
-  
-  request_context:
-    # Request attributes (path, method, headers, etc.)
-    - type: request_attributes
-
 # Token issuers
 # TODO: Replace with JWT issuer with proper signing in production
 issuers:
@@ -101,6 +81,20 @@ issuers:
     type: unsigned
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
+    # Claim mappers build the token content
+    claim_mappers:
+      # Include subject identity
+      - type: passthrough
+      
+      # Add permissions and org context
+      - type: cel
+        script: |
+          {
+            "sub": subject.subject,
+            "permissions": datasource("user_permissions").permissions,
+            "org_id": datasource("org_metadata").org_id,
+            "org_tier": datasource("org_metadata").tier
+          }
     # In production, use JWT issuer:
     # type: jwt
     # signing_key: /etc/parsec/keys/signing-key.pem
