@@ -1,0 +1,42 @@
+# Example JWKS Fixture Configuration
+# 
+# This is a conceptual example of what JWKS fixture configuration might look like
+# if we add config-based fixture support in the future.
+#
+# Currently, JWKS fixtures must be created programmatically in Go tests using:
+#   httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{...})
+#
+# See internal/httpfixture/README.md for usage examples.
+
+# Conceptual syntax for future config-based fixtures:
+fixtures:
+  - type: jwks
+    name: prod-jwt-issuer
+    issuer: https://auth.prod.example.com
+    jwks_url: https://auth.prod.example.com/.well-known/jwks.json
+    key_id: prod-key-1
+    algorithm: RS256
+    # In config mode, the fixture would:
+    # 1. Generate RSA key pair on startup
+    # 2. Serve JWKS at the configured URL
+    # 3. Expose signing API for test token creation
+
+  - type: jwks
+    name: test-jwt-issuer
+    issuer: https://auth.test.example.com
+    jwks_url: https://auth.test.example.com/.well-known/jwks.json
+    key_id: test-key-1
+    algorithm: RS256
+
+  # Generic HTTP fixtures can be mixed with specialized fixtures
+  - type: http_rule
+    request:
+      method: GET
+      url: https://api.example.com/user/.*
+      url_type: pattern
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: '{"user": "test-user", "email": "user@example.com"}'
+

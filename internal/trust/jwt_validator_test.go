@@ -2,126 +2,75 @@ package trust
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/alechenninger/parsec/internal/clock"
+	"github.com/alechenninger/parsec/internal/httpfixture"
 )
 
-// setupTestJWKS creates a test JWKS server and returns the private key, JWKS URL, and cleanup function
-func setupTestJWKS(t *testing.T) (*rsa.PrivateKey, string, func()) {
-	// Generate RSA key pair
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+// setupTestJWKSFixture creates a JWKS fixture for testing
+func setupTestJWKSFixture(t *testing.T) *httpfixture.JWKSFixture {
+	t.Helper()
+
+	fixture, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+		Issuer:  "https://test-issuer.example.com",
+		JWKSURL: "https://test-issuer.example.com/.well-known/jwks.json",
+	})
 	if err != nil {
-		t.Fatalf("failed to generate RSA key: %v", err)
+		t.Fatalf("failed to create JWKS fixture: %v", err)
 	}
 
-	// Create JWK from public key
-	publicKey, err := jwk.FromRaw(privateKey.PublicKey)
-	if err != nil {
-		t.Fatalf("failed to create JWK: %v", err)
-	}
-
-	// Set key ID
-	if err := publicKey.Set(jwk.KeyIDKey, "test-key-1"); err != nil {
-		t.Fatalf("failed to set key ID: %v", err)
-	}
-
-	// Set algorithm
-	if err := publicKey.Set(jwk.AlgorithmKey, jwa.RS256); err != nil {
-		t.Fatalf("failed to set algorithm: %v", err)
-	}
-
-	// Create JWKS
-	jwks := jwk.NewSet()
-	if err := jwks.AddKey(publicKey); err != nil {
-		t.Fatalf("failed to add key to set: %v", err)
-	}
-
-	// Create HTTP server serving JWKS
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(jwks); err != nil {
-			t.Errorf("failed to encode JWKS: %v", err)
-		}
-	}))
-
-	return privateKey, server.URL, server.Close
+	return fixture
 }
 
-// createTestJWT creates a signed JWT for testing
-func createTestJWT(t *testing.T, privateKey *rsa.PrivateKey, claims map[string]interface{}) string {
-	token := jwt.New()
+// createValidatorWithFixture creates a JWT validator configured to use the provided fixture
+// The validator uses the same clock as the fixture for consistent time behavior
+func createValidatorWithFixture(t *testing.T, fixture *httpfixture.JWKSFixture) *JWTValidator {
+	t.Helper()
 
-	// Set standard claims
-	now := time.Now()
-	if err := token.Set(jwt.IssuedAtKey, now); err != nil {
-		t.Fatalf("failed to set iat: %v", err)
-	}
-	if err := token.Set(jwt.ExpirationKey, now.Add(1*time.Hour)); err != nil {
-		t.Fatalf("failed to set exp: %v", err)
-	}
-
-	// Set custom claims
-	for key, value := range claims {
-		if err := token.Set(key, value); err != nil {
-			t.Fatalf("failed to set claim %s: %v", key, err)
-		}
+	// Create HTTP client with fixture transport
+	httpClient := &http.Client{
+		Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+			Provider: fixture,
+			Strict:   true,
+		}),
 	}
 
-	// Create JWK with key ID for signing
-	key, err := jwk.FromRaw(privateKey)
+	validator, err := NewJWTValidator(JWTValidatorConfig{
+		Issuer:      fixture.Issuer(),
+		JWKSURL:     fixture.JWKSURL(),
+		TrustDomain: "test-domain",
+		HTTPClient:  httpClient,
+		Clock:       fixture.Clock(), // Use the same clock as the fixture
+	})
 	if err != nil {
-		t.Fatalf("failed to create JWK from private key: %v", err)
-	}
-	if err := key.Set(jwk.KeyIDKey, "test-key-1"); err != nil {
-		t.Fatalf("failed to set key ID: %v", err)
-	}
-	if err := key.Set(jwk.AlgorithmKey, jwa.RS256); err != nil {
-		t.Fatalf("failed to set algorithm: %v", err)
+		t.Fatalf("failed to create validator: %v", err)
 	}
 
-	// Sign the token with the key (including kid in header)
-	signed, err := jwt.Sign(token, jwt.WithKey(jwa.RS256, key))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
-
-	return string(signed)
+	return validator
 }
 
 func TestJWTValidator(t *testing.T) {
 	ctx := context.Background()
 
-	// Setup test JWKS server
-	privateKey, jwksURL, cleanup := setupTestJWKS(t)
-	defer cleanup()
+	// Setup test JWKS fixture
+	fixture := setupTestJWKSFixture(t)
 
 	t.Run("validates valid JWT successfully", func(t *testing.T) {
-		// Create validator
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
-		})
-		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
-		}
+		// Create validator with fixture
+		validator := createValidatorWithFixture(t, fixture)
 
-		// Create valid JWT
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss":   "https://test-issuer.example.com",
+		// Create valid JWT using fixture
+		tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
 			"sub":   "user@example.com",
 			"email": "user@example.com",
 			"name":  "Test User",
 		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
 
 		// Create credential
 		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
@@ -148,19 +97,14 @@ func TestJWTValidator(t *testing.T) {
 	})
 
 	t.Run("validates bearer credential as JWT", func(t *testing.T) {
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
-		})
-		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
-		}
+		validator := createValidatorWithFixture(t, fixture)
 
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss": "https://test-issuer.example.com",
+		tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
 			"sub": "user@example.com",
 		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
 
 		// Use BearerCredential instead of JWTCredential
 		cred := &BearerCredential{Token: tokenString}
@@ -176,30 +120,19 @@ func TestJWTValidator(t *testing.T) {
 	})
 
 	t.Run("rejects expired JWT", func(t *testing.T) {
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
-		})
+		validator := createValidatorWithFixture(t, fixture)
+
+		// Create expired token (expired 1 hour ago)
+		expiry := time.Now().Add(-1 * time.Hour)
+		tokenString, err := fixture.CreateAndSignTokenWithExpiry(
+			map[string]interface{}{"sub": "user@example.com"},
+			expiry,
+		)
 		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
+			t.Fatalf("failed to create token: %v", err)
 		}
 
-		// Create expired token
-		token := jwt.New()
-		now := time.Now()
-		token.Set(jwt.IssuedAtKey, now.Add(-2*time.Hour))
-		token.Set(jwt.ExpirationKey, now.Add(-1*time.Hour)) // Expired 1 hour ago
-		token.Set(jwt.IssuerKey, "https://test-issuer.example.com")
-		token.Set(jwt.SubjectKey, "user@example.com")
-
-		// Create JWK with key ID for signing
-		key, _ := jwk.FromRaw(privateKey)
-		key.Set(jwk.KeyIDKey, "test-key-1")
-		key.Set(jwk.AlgorithmKey, jwa.RS256)
-
-		signed, _ := jwt.Sign(token, jwt.WithKey(jwa.RS256, key))
-		cred := &JWTCredential{BearerCredential: BearerCredential{Token: string(signed)}}
+		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
 
 		_, err = validator.Validate(ctx, cred)
 		if err == nil {
@@ -210,20 +143,78 @@ func TestJWTValidator(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects JWT with wrong issuer", func(t *testing.T) {
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
+	t.Run("rejects JWT that expires during validation with clock fixture", func(t *testing.T) {
+		// Use a fixture clock for precise time control
+		fixedTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
+		clk := clock.NewFixtureClock(fixedTime)
+
+		fixtureWithClock, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+			Issuer:  "https://test-issuer.example.com",
+			JWKSURL: "https://test-issuer.example.com/.well-known/jwks.json",
+			Clock:   clk,
 		})
 		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
+			t.Fatalf("failed to create fixture: %v", err)
 		}
 
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss": "https://wrong-issuer.example.com",
+		validator := createValidatorWithFixture(t, fixtureWithClock)
+
+		// Create token valid for 1 hour from fixture time
+		tokenString, err := fixtureWithClock.CreateAndSignToken(map[string]interface{}{
 			"sub": "user@example.com",
 		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
+
+		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
+
+		// Token should be valid now
+		result, err := validator.Validate(ctx, cred)
+		if err != nil {
+			t.Fatalf("expected token to be valid, got error: %v", err)
+		}
+		if result.Subject != "user@example.com" {
+			t.Errorf("expected subject 'user@example.com', got %q", result.Subject)
+		}
+
+		// Advance clock by 30 minutes - still valid
+		clk.Advance(30 * time.Minute)
+		result, err = validator.Validate(ctx, cred)
+		if err != nil {
+			t.Errorf("expected token to still be valid after 30 minutes, got error: %v", err)
+		}
+
+		// Advance clock by another 31 minutes - now expired (61 minutes total)
+		clk.Advance(31 * time.Minute)
+		_, err = validator.Validate(ctx, cred)
+		if err == nil {
+			t.Error("expected validation to fail after advancing past expiration")
+		}
+		if err != ErrExpiredToken {
+			t.Errorf("expected ErrExpiredToken, got %v", err)
+		}
+	})
+
+	t.Run("rejects JWT with wrong issuer", func(t *testing.T) {
+		validator := createValidatorWithFixture(t, fixture)
+
+		// Create a fixture with a different issuer
+		wrongIssuerFixture, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+			Issuer:  "https://wrong-issuer.example.com",
+			JWKSURL: "https://wrong-issuer.example.com/.well-known/jwks.json",
+		})
+		if err != nil {
+			t.Fatalf("failed to create wrong issuer fixture: %v", err)
+		}
+
+		// Create token with wrong issuer
+		tokenString, err := wrongIssuerFixture.CreateAndSignToken(map[string]interface{}{
+			"sub": "user@example.com",
+		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
 
 		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
 
@@ -234,19 +225,15 @@ func TestJWTValidator(t *testing.T) {
 	})
 
 	t.Run("rejects JWT with missing subject", func(t *testing.T) {
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
+		validator := createValidatorWithFixture(t, fixture)
+
+		// Create token without subject claim
+		tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
+			// No "sub" claim
 		})
 		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
+			t.Fatalf("failed to create token: %v", err)
 		}
-
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss": "https://test-issuer.example.com",
-			// Missing "sub" claim
-		})
 
 		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
 
@@ -257,22 +244,17 @@ func TestJWTValidator(t *testing.T) {
 	})
 
 	t.Run("extracts scope and custom claims", func(t *testing.T) {
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
-		})
-		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
-		}
+		validator := createValidatorWithFixture(t, fixture)
 
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss":    "https://test-issuer.example.com",
+		tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
 			"sub":    "user@example.com",
 			"scope":  "read write",
 			"groups": []string{"admins", "users"},
 			"custom": "value",
 		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
 
 		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
 
@@ -293,23 +275,18 @@ func TestJWTValidator(t *testing.T) {
 		// This test verifies the fix where we use AsMap() to get ALL claims,
 		// not just PrivateClaims(). Standard JWT claims like sub, iss, exp, iat
 		// should be available in the Claims map for transformation.
-		validator, err := NewJWTValidator(JWTValidatorConfig{
-			Issuer:      "https://test-issuer.example.com",
-			JWKSURL:     jwksURL,
-			TrustDomain: "test-domain",
-		})
-		if err != nil {
-			t.Fatalf("failed to create validator: %v", err)
-		}
+		validator := createValidatorWithFixture(t, fixture)
 
-		tokenString := createTestJWT(t, privateKey, map[string]interface{}{
-			"iss":    "https://test-issuer.example.com",
+		tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
 			"sub":    "user@example.com",
 			"aud":    "test-audience",
 			"email":  "user@example.com",
 			"groups": []string{"admins", "users"},
 			"custom": "custom-value",
 		})
+		if err != nil {
+			t.Fatalf("failed to create token: %v", err)
+		}
 
 		cred := &JWTCredential{BearerCredential: BearerCredential{Token: tokenString}}
 
@@ -365,14 +342,35 @@ func TestJWTValidatorConfig(t *testing.T) {
 	})
 
 	t.Run("uses default JWKS URL if not provided", func(t *testing.T) {
-		// This will fail to fetch, but we're just testing the URL construction
-		validator, _ := NewJWTValidator(JWTValidatorConfig{
+		// Create a fixture that uses the default JWKS URL pattern
+		fixture, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+			Issuer:  "https://test-issuer.example.com",
+			JWKSURL: "https://test-issuer.example.com/.well-known/jwks.json",
+		})
+		if err != nil {
+			t.Fatalf("failed to create fixture: %v", err)
+		}
+
+		// Create HTTP client with fixture transport
+		httpClient := &http.Client{
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: fixture,
+				Strict:   true,
+			}),
+		}
+
+		// Create validator without explicit JWKS URL
+		validator, err := NewJWTValidator(JWTValidatorConfig{
 			Issuer:      "https://test-issuer.example.com",
 			TrustDomain: "test-domain",
+			HTTPClient:  httpClient,
 		})
+		if err != nil {
+			t.Fatalf("failed to create validator: %v", err)
+		}
 
 		expectedURL := "https://test-issuer.example.com/.well-known/jwks.json"
-		if validator != nil && validator.jwksURL != expectedURL {
+		if validator.jwksURL != expectedURL {
 			t.Errorf("expected JWKS URL %q, got %q", expectedURL, validator.jwksURL)
 		}
 	})

@@ -322,16 +322,258 @@ The fixture system is designed to be:
 
 The package uses [`github.com/goccy/go-yaml`](https://github.com/goccy/go-yaml) for YAML parsing, which is an actively maintained pure Go YAML 1.2 implementation with excellent error reporting and performance.
 
+## JWKS Fixtures
+
+### Overview
+
+JWKS (JSON Web Key Set) fixtures are specialized fixtures for testing JWT validators without external dependencies. They provide both HTTP fixture responses for JWKS endpoints and a convenient Go API for signing test tokens.
+
+### Key Features
+
+- **Automatic Key Generation**: Generates RSA key pairs on creation
+- **FixtureProvider Implementation**: Serves JWKS responses via HTTP fixture interface
+- **Signing API**: Convenient methods for creating and signing test tokens
+- **Time Control**: Optional clock injection for precise control over token timestamps
+- **Hermetic Testing**: No need for httptest servers or external services
+
+### Creating a JWKS Fixture
+
+```go
+fixture, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+    Issuer:  "https://test-issuer.example.com",
+    JWKSURL: "https://test-issuer.example.com/.well-known/jwks.json",
+    KeyID:   "test-key-1",  // Optional, defaults to "test-key-1"
+    Algorithm: jwa.RS256,    // Optional, defaults to RS256
+})
+if err != nil {
+    t.Fatal(err)
+}
+```
+
+### Using with JWT Validators
+
+```go
+// Create HTTP client with fixture transport
+httpClient := &http.Client{
+    Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+        Provider: fixture,
+        Strict:   true,
+    }),
+}
+
+// Create validator with fixture client
+validator, err := trust.NewJWTValidator(trust.JWTValidatorConfig{
+    Issuer:      fixture.Issuer(),
+    JWKSURL:     fixture.JWKSURL(),
+    TrustDomain: "test-domain",
+    HTTPClient:  httpClient,
+})
+
+// Create and sign test tokens
+tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
+    "sub":   "user@example.com",
+    "email": "user@example.com",
+    "roles": []string{"admin", "user"},
+})
+```
+
+### Signing API
+
+#### CreateAndSignToken
+
+Creates a JWT with standard claims (iss, iat, exp) automatically set, plus custom claims:
+
+```go
+tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
+    "sub":    "user-123",
+    "email":  "user@example.com",
+    "custom": "value",
+})
+```
+
+#### CreateAndSignTokenWithExpiry
+
+Creates a JWT with custom expiry time (useful for testing expiration):
+
+```go
+expiry := time.Now().Add(-1 * time.Hour) // Expired 1 hour ago
+tokenString, err := fixture.CreateAndSignTokenWithExpiry(
+    map[string]interface{}{"sub": "user@example.com"},
+    expiry,
+)
+```
+
+#### SignToken
+
+Signs a pre-built JWT token for maximum control:
+
+```go
+token := jwt.New()
+token.Set(jwt.SubjectKey, "custom-subject")
+token.Set("custom_claim", "custom_value")
+
+tokenString, err := fixture.SignToken(token)
+```
+
+### Testing Multiple Issuers
+
+Create multiple fixtures with different issuers to test authorization scenarios:
+
+```go
+prodFixture, _ := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+    Issuer:  "https://prod-issuer.example.com",
+    JWKSURL: "https://prod-issuer.example.com/.well-known/jwks.json",
+})
+
+testFixture, _ := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+    Issuer:  "https://test-issuer.example.com",
+    JWKSURL: "https://test-issuer.example.com/.well-known/jwks.json",
+})
+
+// Create composite provider for both fixtures
+compositeProvider := httpfixture.NewFuncProvider(func(req *http.Request) *httpfixture.Fixture {
+    if f := prodFixture.GetFixture(req); f != nil {
+        return f
+    }
+    return testFixture.GetFixture(req)
+})
+```
+
+### Time Control with Clock Fixtures
+
+Use `clock.FixtureClock` for precise control over token timestamps and expiration testing:
+
+```go
+import "github.com/alechenninger/parsec/internal/clock"
+
+func TestTokenExpiration(t *testing.T) {
+    // Create a fixture clock at a specific time
+    fixedTime := time.Date(2024, 6, 15, 10, 0, 0, 0, time.UTC)
+    clk := clock.NewFixtureClock(fixedTime)
+
+    // Create JWKS fixture with controlled clock
+    fixture, _ := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+        Issuer:  "https://auth.example.com",
+        JWKSURL: "https://auth.example.com/.well-known/jwks.json",
+        Clock:   clk,
+    })
+
+    // Create validator with same clock for consistent time behavior
+    httpClient := &http.Client{
+        Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+            Provider: fixture,
+            Strict:   true,
+        }),
+    }
+
+    validator, _ := trust.NewJWTValidator(trust.JWTValidatorConfig{
+        Issuer:      fixture.Issuer(),
+        JWKSURL:     fixture.JWKSURL(),
+        TrustDomain: "test-domain",
+        HTTPClient:  httpClient,
+        Clock:       fixture.Clock(), // Same clock for validator
+    })
+
+    // Create token valid for 1 hour
+    tokenString, _ := fixture.CreateAndSignToken(map[string]interface{}{
+        "sub": "user@example.com",
+    })
+
+    cred := &trust.JWTCredential{
+        BearerCredential: trust.BearerCredential{Token: tokenString},
+    }
+
+    // Token is valid now
+    _, err := validator.Validate(context.Background(), cred)
+    if err != nil {
+        t.Errorf("expected token to be valid: %v", err)
+    }
+
+    // Advance clock by 30 minutes - still valid
+    clk.Advance(30 * time.Minute)
+    _, err = validator.Validate(context.Background(), cred)
+    if err != nil {
+        t.Errorf("expected token to still be valid: %v", err)
+    }
+
+    // Advance clock by 31 more minutes - now expired
+    clk.Advance(31 * time.Minute)
+    _, err = validator.Validate(context.Background(), cred)
+    if err == nil {
+        t.Error("expected token to be expired")
+    }
+}
+```
+
+### Complete Example
+
+```go
+func TestJWTValidation(t *testing.T) {
+    // Setup fixture
+    fixture, err := httpfixture.NewJWKSFixture(httpfixture.JWKSFixtureConfig{
+        Issuer:  "https://auth.example.com",
+        JWKSURL: "https://auth.example.com/.well-known/jwks.json",
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    // Create validator with fixture
+    httpClient := &http.Client{
+        Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+            Provider: fixture,
+            Strict:   true,
+        }),
+    }
+
+    validator, err := trust.NewJWTValidator(trust.JWTValidatorConfig{
+        Issuer:      fixture.Issuer(),
+        JWKSURL:     fixture.JWKSURL(),
+        TrustDomain: "test-domain",
+        HTTPClient:  httpClient,
+        Clock:       fixture.Clock(), // Use fixture's clock
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    // Test with valid token
+    tokenString, err := fixture.CreateAndSignToken(map[string]interface{}{
+        "sub":   "user@example.com",
+        "role":  "admin",
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    cred := &trust.JWTCredential{
+        BearerCredential: trust.BearerCredential{Token: tokenString},
+    }
+
+    result, err := validator.Validate(context.Background(), cred)
+    if err != nil {
+        t.Fatalf("validation failed: %v", err)
+    }
+
+    // Assert on result
+    if result.Subject != "user@example.com" {
+        t.Errorf("unexpected subject: %v", result.Subject)
+    }
+}
+```
+
 ## Package Structure
 
 ```
 internal/httpfixture/
-├── fixture.go       # Core types and interfaces
-├── providers.go     # Built-in provider implementations
-├── transport.go     # HTTP RoundTripper implementation
-├── loader.go        # File loading utilities
-├── fixture_test.go  # Tests
-└── README.md        # This file
+├── fixture.go            # Core types and interfaces
+├── providers.go          # Built-in provider implementations
+├── transport.go          # HTTP RoundTripper implementation
+├── loader.go             # File loading utilities
+├── jwks_fixture.go       # JWKS fixture for JWT testing
+├── fixture_test.go       # Tests
+├── jwks_fixture_test.go  # JWKS fixture tests
+└── README.md             # This file
 ```
 
 ## Future Enhancements

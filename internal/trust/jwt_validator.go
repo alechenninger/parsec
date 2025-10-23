@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/clock"
 )
 
 // JWTValidator validates JWT tokens using JWKS
@@ -19,6 +21,7 @@ type JWTValidator struct {
 	jwksURL     string
 	cache       *jwk.Cache
 	trustDomain string
+	clock       clock.Clock
 }
 
 // JWTValidatorConfig contains configuration for JWT validation
@@ -35,6 +38,16 @@ type JWTValidatorConfig struct {
 
 	// RefreshInterval for JWKS cache (default: 15 minutes)
 	RefreshInterval time.Duration
+
+	// HTTPClient is an optional HTTP client for JWKS fetching
+	// If nil, http.DefaultClient will be used
+	// This is useful for testing with fixtures or custom transports
+	HTTPClient *http.Client
+
+	// Clock is the time source for token validation
+	// If nil, uses system clock
+	// This is useful for testing time-dependent behavior
+	Clock clock.Clock
 }
 
 // NewJWTValidator creates a new JWT validator with JWKS support
@@ -58,7 +71,11 @@ func NewJWTValidator(cfg JWTValidatorConfig) (*JWTValidator, error) {
 	cache := jwk.NewCache(context.Background())
 
 	// Register the JWKS URL with the cache
-	if err := cache.Register(jwksURL, jwk.WithMinRefreshInterval(refreshInterval)); err != nil {
+	registerOpts := []jwk.RegisterOption{jwk.WithMinRefreshInterval(refreshInterval)}
+	if cfg.HTTPClient != nil {
+		registerOpts = append(registerOpts, jwk.WithHTTPClient(cfg.HTTPClient))
+	}
+	if err := cache.Register(jwksURL, registerOpts...); err != nil {
 		return nil, fmt.Errorf("failed to register JWKS URL: %w", err)
 	}
 
@@ -70,11 +87,18 @@ func NewJWTValidator(cfg JWTValidatorConfig) (*JWTValidator, error) {
 		return nil, fmt.Errorf("failed to fetch initial JWKS: %w", err)
 	}
 
+	// Use provided clock or default to system clock
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.NewSystemClock()
+	}
+
 	return &JWTValidator{
 		issuer:      cfg.Issuer,
 		jwksURL:     jwksURL,
 		cache:       cache,
 		trustDomain: cfg.TrustDomain,
+		clock:       clk,
 	}, nil
 }
 
@@ -104,12 +128,15 @@ func (v *JWTValidator) Validate(ctx context.Context, credential Credential) (*Re
 		return nil, fmt.Errorf("failed to fetch JWKS: %w", err)
 	}
 
-	// Parse and validate the JWT
+	// Parse and validate the JWT using the validator's clock
 	token, err := jwt.Parse(
 		[]byte(tokenString),
 		jwt.WithKeySet(jwks),
 		jwt.WithValidate(true),
 		jwt.WithIssuer(v.issuer),
+		jwt.WithClock(jwt.ClockFunc(func() time.Time {
+			return v.clock.Now()
+		})),
 		// TODO: validate aud
 	)
 	if err != nil {
