@@ -31,7 +31,12 @@ func TestAuthzServer_Check(t *testing.T) {
 	// Create mappers for the issuer
 	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+	txnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
@@ -406,7 +411,12 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 	// Create mappers for the issuer
 	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+	txnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
@@ -619,7 +629,12 @@ func TestAuthzServer_WithActorFilteringByRequestPath(t *testing.T) {
 	// Create mappers for the issuer
 	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+	txnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"

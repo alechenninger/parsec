@@ -137,9 +137,10 @@ Time is another form of IO that needs to be controlled in tests. A clock abstrac
 - `Rewind(duration)` - move time backward
 
 #### Integration
-- JWKS fixtures accept optional `Clock` for token timestamp generation
+- JWKS fixtures accept optional `Clock` for token timestamp generation (iat, exp)
 - JWT validators accept optional `Clock` for token validation
-- Using the same clock for both ensures consistent time behavior in tests
+- **Token issuers** accept optional `Clock` for issued token timestamps (iat, exp)
+- Using the same clock across all components ensures consistent time behavior in tests
 
 #### Usage Example
 
@@ -161,7 +162,14 @@ validator, _ := trust.NewJWTValidator(trust.JWTValidatorConfig{
     JWKSURL:     fixture.JWKSURL(),
     TrustDomain: "test-domain",
     HTTPClient:  httpClient,
-    Clock:       fixture.Clock(), // Same clock
+    Clock:       clk, // Same clock
+})
+
+// Create issuer with same clock
+issuer := issuer.NewUnsignedIssuer(issuer.UnsignedIssuerConfig{
+    TokenType:    "urn:ietf:params:oauth:token-type:txn_token",
+    ClaimMappers: []service.ClaimMapper{...},
+    Clock:        clk, // Same clock
 })
 
 // Create token valid for 1 hour

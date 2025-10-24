@@ -88,7 +88,12 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		reqMappers = append(reqMappers, m)
 	}
 
-	return issuer.NewStubIssuer(cfg.IssuerURL, ttl, txnMappers, reqMappers), nil
+	return issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 cfg.IssuerURL,
+		TTL:                       ttl,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	}), nil
 }
 
 // newUnsignedIssuer creates an unsigned issuer (for development/testing)
@@ -103,7 +108,10 @@ func newUnsignedIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		mappers = append(mappers, m)
 	}
 
-	return issuer.NewUnsignedIssuer(cfg.TokenType, mappers), nil
+	return issuer.NewUnsignedIssuer(issuer.UnsignedIssuerConfig{
+		TokenType:    cfg.TokenType,
+		ClaimMappers: mappers,
+	}), nil
 }
 
 // newRHIdentityIssuer creates a Red Hat identity issuer
@@ -118,7 +126,10 @@ func newRHIdentityIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		mappers = append(mappers, m)
 	}
 
-	return issuer.NewRHIdentityIssuer(cfg.TokenType, mappers), nil
+	return issuer.NewRHIdentityIssuer(issuer.RHIdentityIssuerConfig{
+		TokenType:    cfg.TokenType,
+		ClaimMappers: mappers,
+	}), nil
 }
 
 // newClaimMapper creates a claim mapper from configuration

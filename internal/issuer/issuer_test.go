@@ -16,7 +16,12 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("issues token successfully", func(t *testing.T) {
 		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute, txnMappers, reqMappers)
+		issuer := NewStubIssuer(StubIssuerConfig{
+			IssuerURL:                 "https://parsec.example.com",
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 
 		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{
@@ -54,7 +59,12 @@ func TestStubIssuer(t *testing.T) {
 		ttl := 10 * time.Minute
 		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-		issuer := NewStubIssuer("https://parsec.example.com", ttl, txnMappers, reqMappers)
+		issuer := NewStubIssuer(StubIssuerConfig{
+			IssuerURL:                 "https://parsec.example.com",
+			TTL:                       ttl,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 
 		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{
@@ -81,7 +91,12 @@ func TestStubIssuer(t *testing.T) {
 		issuerURL := "https://parsec.example.com"
 		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-		issuer := NewStubIssuer(issuerURL, 5*time.Minute, txnMappers, reqMappers)
+		issuer := NewStubIssuer(StubIssuerConfig{
+			IssuerURL:                 issuerURL,
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 
 		keys, err := issuer.PublicKeys(ctx)
 		if err != nil {
@@ -101,7 +116,12 @@ func TestStubIssuer(t *testing.T) {
 	t.Run("generates unique token values", func(t *testing.T) {
 		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-		issuer := NewStubIssuer("https://parsec.example.com", 5*time.Minute, txnMappers, reqMappers)
+		issuer := NewStubIssuer(StubIssuerConfig{
+			IssuerURL:                 "https://parsec.example.com",
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 
 		issueCtx := &service.IssueContext{
 			Subject: &trust.Result{

@@ -8,23 +8,44 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
 var never = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+
+// UnsignedIssuerConfig is the configuration for creating an unsigned issuer
+type UnsignedIssuerConfig struct {
+	// TokenType is the token type to issue
+	TokenType string
+
+	// ClaimMappers are the mappers to apply to generate claims
+	ClaimMappers []service.ClaimMapper
+
+	// Clock is the time source for token timestamps
+	// If nil, uses system clock
+	Clock clock.Clock
+}
 
 // UnsignedIssuer issues unsigned tokens containing claim-mapped data
 // The token is the base64-encoded JSON representation of the mapped claims
 type UnsignedIssuer struct {
 	tokenType    string
 	claimMappers []service.ClaimMapper
+	clock        clock.Clock
 }
 
 // NewUnsignedIssuer creates a new unsigned issuer
-func NewUnsignedIssuer(tokenType string, claimMappers []service.ClaimMapper) *UnsignedIssuer {
+func NewUnsignedIssuer(cfg UnsignedIssuerConfig) *UnsignedIssuer {
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.NewSystemClock()
+	}
+
 	return &UnsignedIssuer{
-		tokenType:    tokenType,
-		claimMappers: claimMappers,
+		tokenType:    cfg.TokenType,
+		claimMappers: cfg.ClaimMappers,
+		clock:        clk,
 	}
 }
 
@@ -73,7 +94,7 @@ func (i *UnsignedIssuer) Issue(ctx context.Context, issueCtx *service.IssueConte
 		Value:     encodedToken,
 		Type:      i.tokenType,
 		ExpiresAt: neverExpires,
-		IssuedAt:  time.Now(),
+		IssuedAt:  i.clock.Now(),
 	}, nil
 }
 

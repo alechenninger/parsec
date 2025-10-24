@@ -54,7 +54,12 @@ func TestExchangeServer_WithActorFiltering(t *testing.T) {
 	// Create mappers for the issuer
 	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+	txnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
@@ -286,7 +291,12 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 	// Create mappers for the issuer
 	txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	prodIssuer := issuer.NewStubIssuer("https://prod.example.com", 5*time.Minute, txnMappers, reqMappers)
+	prodIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://prod.example.com",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, prodIssuer)
 	tokenService := service.NewTokenService("prod.example.com", dataSourceRegistry, issuerRegistry)
 
@@ -314,7 +324,12 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 	devIssuerRegistry := service.NewSimpleRegistry()
 	devTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	devReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	devIssuer := issuer.NewStubIssuer("https://dev.example.com", 5*time.Minute, devTxnMappers, devReqMappers)
+	devIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://dev.example.com",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: devTxnMappers,
+		RequestContextMappers:     devReqMappers,
+	})
 	devIssuerRegistry.Register(service.TokenTypeTransactionToken, devIssuer)
 	devTokenService := service.NewTokenService("dev.example.com", dataSourceRegistry, devIssuerRegistry)
 	devExchangeServer := NewExchangeServer(filteredStore, devTokenService, claimsFilterRegistry)
@@ -342,7 +357,12 @@ func TestExchangeServer_WithActorFilteringByAudience(t *testing.T) {
 		wrongIssuerRegistry := service.NewSimpleRegistry()
 		wrongTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		wrongReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-		wrongIssuer := issuer.NewStubIssuer("https://wrong.example.com", 5*time.Minute, wrongTxnMappers, wrongReqMappers)
+		wrongIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+			IssuerURL:                 "https://wrong.example.com",
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: wrongTxnMappers,
+			RequestContextMappers:     wrongReqMappers,
+		})
 		wrongIssuerRegistry.Register(service.TokenTypeTransactionToken, wrongIssuer)
 		wrongTokenService := service.NewTokenService("wrong.example.com", dataSourceRegistry, wrongIssuerRegistry)
 		wrongExchangeServer := NewExchangeServer(filteredStore, wrongTokenService, claimsFilterRegistry)
@@ -400,7 +420,12 @@ func TestExchangeServer_ActorPassedToTokenIssuance(t *testing.T) {
 	reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 	issuerRegistry := service.NewSimpleRegistry()
-	txnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+	txnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	})
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
@@ -458,7 +483,12 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 	simpleIssuerRegistry := service.NewSimpleRegistry()
 	simpleTxnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 	simpleReqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
-	simpleIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, simpleTxnMappers, simpleReqMappers)
+	simpleIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+		IssuerURL:                 "https://parsec.test",
+		TTL:                       5 * time.Minute,
+		TransactionContextMappers: simpleTxnMappers,
+		RequestContextMappers:     simpleReqMappers,
+	})
 	simpleIssuerRegistry.Register(service.TokenTypeTransactionToken, simpleIssuer)
 	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, simpleIssuerRegistry)
 
@@ -468,7 +498,12 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 		localIssuerRegistry := service.NewSimpleRegistry()
-		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+		localTxnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+			IssuerURL:                 "https://parsec.test",
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
 		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localIssuerRegistry)
 
@@ -533,7 +568,12 @@ func TestExchangeServer_RequestContextFiltering(t *testing.T) {
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 
 		localIssuerRegistry := service.NewSimpleRegistry()
-		localTxnTokenIssuer := issuer.NewStubIssuer("https://parsec.test", 5*time.Minute, txnMappers, reqMappers)
+		localTxnTokenIssuer := issuer.NewStubIssuer(issuer.StubIssuerConfig{
+			IssuerURL:                 "https://parsec.test",
+			TTL:                       5 * time.Minute,
+			TransactionContextMappers: txnMappers,
+			RequestContextMappers:     reqMappers,
+		})
 		localIssuerRegistry.Register(service.TokenTypeTransactionToken, localTxnTokenIssuer)
 		localTokenService := service.NewTokenService(trustDomain, dataSourceRegistry, localIssuerRegistry)
 

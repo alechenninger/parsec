@@ -174,7 +174,11 @@ end`,
 	}
 
 	claimMappers := []service.ClaimMapper{celMapper}
-	txnIssuer := issuer.NewUnsignedIssuer(string(service.TokenTypeTransactionToken), claimMappers)
+	txnIssuer := issuer.NewUnsignedIssuer(issuer.UnsignedIssuerConfig{
+		TokenType:    string(service.TokenTypeTransactionToken),
+		ClaimMappers: claimMappers,
+		Clock:        clk, // Inject the fixture clock for deterministic timestamps
+	})
 
 	issuerRegistry := service.NewSimpleRegistry()
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)

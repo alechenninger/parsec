@@ -8,21 +8,42 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
+
+// RHIdentityIssuerConfig is the configuration for creating a Red Hat identity issuer
+type RHIdentityIssuerConfig struct {
+	// TokenType is the token type to issue
+	TokenType string
+
+	// ClaimMappers are the mappers to apply to generate claims
+	ClaimMappers []service.ClaimMapper
+
+	// Clock is the time source for token timestamps
+	// If nil, uses system clock
+	Clock clock.Clock
+}
 
 // RHIdentityIssuer issues Red Hat identity tokens in the x-rh-identity format
 // The token is the base64-encoded JSON representation wrapped in {"identity": {...}}
 type RHIdentityIssuer struct {
 	tokenType    string
 	claimMappers []service.ClaimMapper
+	clock        clock.Clock
 }
 
 // NewRHIdentityIssuer creates a new Red Hat identity issuer
-func NewRHIdentityIssuer(tokenType string, claimMappers []service.ClaimMapper) *RHIdentityIssuer {
+func NewRHIdentityIssuer(cfg RHIdentityIssuerConfig) *RHIdentityIssuer {
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.NewSystemClock()
+	}
+
 	return &RHIdentityIssuer{
-		tokenType:    tokenType,
-		claimMappers: claimMappers,
+		tokenType:    cfg.TokenType,
+		claimMappers: cfg.ClaimMappers,
+		clock:        clk,
 	}
 }
 
@@ -78,7 +99,7 @@ func (i *RHIdentityIssuer) Issue(ctx context.Context, issueCtx *service.IssueCon
 		Value:     encodedToken,
 		Type:      i.tokenType,
 		ExpiresAt: neverExpires,
-		IssuedAt:  time.Now(),
+		IssuedAt:  i.clock.Now(),
 	}, nil
 }
 

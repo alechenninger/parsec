@@ -22,7 +22,10 @@ func TestUnsignedIssuer_Issue(t *testing.T) {
 		"permissions": []string{"read", "write"},
 		"level":       5,
 	})
-	issuer := NewUnsignedIssuer(tokenType, []service.ClaimMapper{testMapper})
+	issuer := NewUnsignedIssuer(UnsignedIssuerConfig{
+		TokenType:    tokenType,
+		ClaimMappers: []service.ClaimMapper{testMapper},
+	})
 
 	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
@@ -99,7 +102,10 @@ func TestUnsignedIssuer_Issue(t *testing.T) {
 func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
 	// Create a mapper that returns empty claims
 	testMapper := service.NewStubClaimMapper(claims.Claims{})
-	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{testMapper})
+	issuer := NewUnsignedIssuer(UnsignedIssuerConfig{
+		TokenType:    "test-token-type",
+		ClaimMappers: []service.ClaimMapper{testMapper},
+	})
 
 	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
@@ -135,7 +141,10 @@ func TestUnsignedIssuer_Issue_EmptyTransactionContext(t *testing.T) {
 
 func TestUnsignedIssuer_Issue_NilTransactionContext(t *testing.T) {
 	// No mappers means nil claims
-	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{})
+	issuer := NewUnsignedIssuer(UnsignedIssuerConfig{
+		TokenType:    "test-token-type",
+		ClaimMappers: []service.ClaimMapper{},
+	})
 
 	issueCtx := &service.IssueContext{
 		Subject: &trust.Result{
@@ -164,7 +173,10 @@ func TestUnsignedIssuer_Issue_NilTransactionContext(t *testing.T) {
 }
 
 func TestUnsignedIssuer_PublicKeys(t *testing.T) {
-	issuer := NewUnsignedIssuer("test-token-type", []service.ClaimMapper{})
+	issuer := NewUnsignedIssuer(UnsignedIssuerConfig{
+		TokenType:    "test-token-type",
+		ClaimMappers: []service.ClaimMapper{},
+	})
 
 	keys, err := issuer.PublicKeys(context.Background())
 	if err != nil {

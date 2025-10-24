@@ -7,8 +7,28 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/claims"
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
+
+// StubIssuerConfig is the configuration for creating a stub issuer
+type StubIssuerConfig struct {
+	// IssuerURL is the issuer URL
+	IssuerURL string
+
+	// TTL is the time-to-live for issued tokens
+	TTL time.Duration
+
+	// TransactionContextMappers are mappers for transaction context
+	TransactionContextMappers []service.ClaimMapper
+
+	// RequestContextMappers are mappers for request context
+	RequestContextMappers []service.ClaimMapper
+
+	// Clock is the time source for token timestamps
+	// If nil, uses system clock
+	Clock clock.Clock
+}
 
 // StubIssuer is a simple stub issuer for testing
 // It generates simple token strings without actual JWT signing
@@ -17,20 +37,22 @@ type StubIssuer struct {
 	ttl                       time.Duration
 	transactionContextMappers []service.ClaimMapper
 	requestContextMappers     []service.ClaimMapper
+	clock                     clock.Clock
 }
 
 // NewStubIssuer creates a new stub issuer
-func NewStubIssuer(
-	issuerURL string,
-	ttl time.Duration,
-	transactionContextMappers []service.ClaimMapper,
-	requestContextMappers []service.ClaimMapper,
-) *StubIssuer {
+func NewStubIssuer(cfg StubIssuerConfig) *StubIssuer {
+	clk := cfg.Clock
+	if clk == nil {
+		clk = clock.NewSystemClock()
+	}
+
 	return &StubIssuer{
-		issuerURL:                 issuerURL,
-		ttl:                       ttl,
-		transactionContextMappers: transactionContextMappers,
-		requestContextMappers:     requestContextMappers,
+		issuerURL:                 cfg.IssuerURL,
+		ttl:                       cfg.TTL,
+		transactionContextMappers: cfg.TransactionContextMappers,
+		requestContextMappers:     cfg.RequestContextMappers,
+		clock:                     clk,
 	}
 }
 
@@ -72,7 +94,7 @@ func (i *StubIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) 
 		requestContext.Merge(mapperClaims)
 	}
 
-	now := time.Now()
+	now := i.clock.Now()
 	expiresAt := now.Add(i.ttl)
 
 	// Generate a simple token ID with microsecond precision for uniqueness
