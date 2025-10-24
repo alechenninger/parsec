@@ -32,6 +32,38 @@ type IssueContext struct {
 	DataSourceRegistry *DataSourceRegistry
 }
 
+// ToClaims applies a set of claim mappers to produce claims
+// This is a convenience method to reduce duplication in issuer implementations
+func (ic *IssueContext) ToClaims(ctx context.Context, mappers []ClaimMapper) (claims.Claims, error) {
+	// Build data source input
+	dataSourceInput := &DataSourceInput{
+		Subject:           ic.Subject,
+		Actor:             ic.Actor,
+		RequestAttributes: ic.RequestAttributes,
+	}
+
+	// Build mapper input
+	mapperInput := &MapperInput{
+		Subject:            ic.Subject,
+		Actor:              ic.Actor,
+		RequestAttributes:  ic.RequestAttributes,
+		DataSourceRegistry: ic.DataSourceRegistry,
+		DataSourceInput:    dataSourceInput,
+	}
+
+	// Apply mappers
+	result := make(claims.Claims)
+	for _, mapper := range mappers {
+		mapperClaims, err := mapper.Map(ctx, mapperInput)
+		if err != nil {
+			return nil, err
+		}
+		result.Merge(mapperClaims)
+	}
+
+	return result, nil
+}
+
 // PublicKey represents a public key for token verification
 type PublicKey struct {
 	// KeyID is the unique identifier for this key (kid)

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
@@ -50,30 +49,10 @@ func NewRHIdentityIssuer(cfg RHIdentityIssuerConfig) *RHIdentityIssuer {
 // Issue implements the Issuer interface
 // Returns a token in the x-rh-identity format: base64(JSON({"identity": {...}}))
 func (i *RHIdentityIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
-	// Build data source input
-	dataSourceInput := &service.DataSourceInput{
-		Subject:           issueCtx.Subject,
-		Actor:             issueCtx.Actor,
-		RequestAttributes: issueCtx.RequestAttributes,
-	}
-
-	// Build mapper input
-	mapperInput := &service.MapperInput{
-		Subject:            issueCtx.Subject,
-		Actor:              issueCtx.Actor,
-		RequestAttributes:  issueCtx.RequestAttributes,
-		DataSourceRegistry: issueCtx.DataSourceRegistry,
-		DataSourceInput:    dataSourceInput,
-	}
-
 	// Apply claim mappers
-	mappedClaims := make(claims.Claims)
-	for _, mapper := range i.claimMappers {
-		mapperClaims, err := mapper.Map(ctx, mapperInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to map claims: %w", err)
-		}
-		mappedClaims.Merge(mapperClaims)
+	mappedClaims, err := issueCtx.ToClaims(ctx, i.claimMappers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map claims: %w", err)
 	}
 
 	// Wrap mapped claims in "identity" wrapper

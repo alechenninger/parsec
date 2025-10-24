@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
@@ -58,40 +57,16 @@ func NewStubIssuer(cfg StubIssuerConfig) *StubIssuer {
 
 // Issue implements the Issuer interface
 func (i *StubIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
-	// Build data source input
-	dataSourceInput := &service.DataSourceInput{
-		Subject:           issueCtx.Subject,
-		Actor:             issueCtx.Actor,
-		RequestAttributes: issueCtx.RequestAttributes,
-	}
-
-	// Build mapper input
-	mapperInput := &service.MapperInput{
-		Subject:            issueCtx.Subject,
-		Actor:              issueCtx.Actor,
-		RequestAttributes:  issueCtx.RequestAttributes,
-		DataSourceRegistry: issueCtx.DataSourceRegistry,
-		DataSourceInput:    dataSourceInput,
-	}
-
-	// Apply transaction context mappers
-	transactionContext := make(claims.Claims)
-	for _, mapper := range i.transactionContextMappers {
-		mapperClaims, err := mapper.Map(ctx, mapperInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to map transaction context: %w", err)
-		}
-		transactionContext.Merge(mapperClaims)
+	// Apply transaction context mappers (currently unused in stub, but kept for consistency)
+	_, err := issueCtx.ToClaims(ctx, i.transactionContextMappers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map transaction context: %w", err)
 	}
 
 	// Apply request context mappers
-	requestContext := make(claims.Claims)
-	for _, mapper := range i.requestContextMappers {
-		mapperClaims, err := mapper.Map(ctx, mapperInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to map request context: %w", err)
-		}
-		requestContext.Merge(mapperClaims)
+	requestContext, err := issueCtx.ToClaims(ctx, i.requestContextMappers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map request context: %w", err)
 	}
 
 	now := i.clock.Now()
