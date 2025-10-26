@@ -21,6 +21,56 @@ Spire provides a rich set of KeyManager plugin implementations for managing cryp
 - **Automatic rotation**: Background goroutine monitors key expiration and rotates proactively
 - **Concurrency safe**: Uses optimistic locking to prevent multiple processes from generating keys simultaneously
 - **Configurable timing**: Key TTL, rotation threshold, and grace period are all configurable
+- **Flexible algorithm selection**: Supports any JWT signing algorithm compatible with the key type
+- **Algorithm migration**: Algorithm is stored per-slot, allowing gradual migration to new algorithms over time
+- **Hot-path optimized**: Both `GetCurrentSigner` and `PublicKeys` are O(1) operations using in-memory cache
+
+### Supported Key Types and Algorithms
+
+The `RotatingKeyManager` requires both a Spire `KeyType` (which determines the cryptographic key material) and a JWT signing `Algorithm` (which determines how signatures are computed).
+
+**Common Configurations:**
+
+| Spire KeyType | Compatible Algorithms | Recommended |
+|---------------|----------------------|-------------|
+| `ECP256` | `ES256` | `ES256` |
+| `ECP384` | `ES384` | `ES384` |
+| `RSA2048` | `RS256`, `RS384`, `RS512` | `RS256` |
+| `RSA4096` | `RS256`, `RS384`, `RS512` | `RS256` or `RS512` |
+
+**Note**: The key type and algorithm must be compatible (e.g., don't use `ES256` with `RSA2048`). The algorithm determines the hash function and signature format, while the key type determines the underlying key material.
+
+### Algorithm Migration
+
+The `RotatingKeyManager` stores the algorithm in the slot state, not just in the manager configuration. This enables gradual algorithm migration:
+
+1. **Current state**: Keys are signed with `RS256`
+2. **Configuration change**: Update the manager config to use `RS512`
+3. **Next rotation**: New keys will be generated with `RS512`, while old keys remain valid with `RS256`
+4. **Transition period**: Both algorithms are accepted during the grace period
+5. **Completion**: Once old keys expire, all tokens use `RS512`
+
+This zero-downtime migration happens automatically without any service interruption or coordination required.
+
+**Example migration scenario:**
+
+```go
+// Week 1: Running with RS256
+rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+    KeyType:   spirekm.RSA4096,
+    Algorithm: "RS256",
+    // ...
+})
+
+// Week 2: Change config to RS512 and restart
+rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+    KeyType:   spirekm.RSA4096,
+    Algorithm: "RS512",  // New keys will use RS512
+    // ...
+})
+// Old RS256 keys remain valid until they expire
+// Verifiers accept both RS256 and RS512 tokens during transition
+```
 
 ### Usage
 
@@ -29,7 +79,6 @@ import (
 	"context"
 	"time"
 	
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
 	keymanagerbase "github.com/spiffe/spire/pkg/server/plugin/keymanager/base"
 	
@@ -41,14 +90,14 @@ baseKM := keymanagerbase.New(keymanagerbase.Config{})
 spireKM := keymanager.NewBaseAdapter(baseKM)
 
 // Initialize key state store
-stateStore := keymanager.NewInMemoryKeyStateStore()
+stateStore := keymanager.NewInMemoryKeySlotStateStore()
 
 // Create rotating key manager
 rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 	KeyManager: spireKM,
 	StateStore: stateStore,
 	KeyType:    spirekm.ECP256,
-	Algorithm:  jwa.ES256.String(),
+	Algorithm:  "ES256", // JWT signing algorithm
 	// Optional: override defaults
 	KeyTTL:            24 * time.Hour,
 	RotationThreshold: 6 * time.Hour,
@@ -62,35 +111,60 @@ if err := rotatingKM.Start(ctx); err != nil {
 }
 defer rotatingKM.Stop()
 
-// Sign data (automatically uses the current active key)
-result, err := rotatingKM.Sign(ctx, []byte("data to sign"))
+// Get the current signer (automatically selects the active key)
+signer, keyID, algorithm, err := rotatingKM.GetCurrentSigner(ctx)
 if err != nil {
 	// Handle error
 }
-// result.Signature contains the signature
-// result.KeyID contains the key ID used
-// result.Algorithm contains the algorithm
+// signer is a crypto.Signer for the current key
+// keyID is the unique identifier for the key (type keymanager.KeyID)
+// algorithm is the cryptographic algorithm (type keymanager.Algorithm, e.g., "ES256")
 
-// Get all non-expired public keys for verification
+// Get all non-expired public keys for verification (cached, very fast)
 publicKeys, err := rotatingKM.PublicKeys(ctx)
 if err != nil {
 	// Handle error
 }
+// publicKeys is []service.PublicKey with all non-expired keys (including keys in grace period)
+// This is a hot-path operation - returns cached data without any I/O
 ```
 
 ### Integration with JWT Issuer
 
-The JWT transaction token issuer uses `RotatingKeyManager` to handle key rotation automatically:
+The JWT transaction token issuer uses `RotatingKeyManager` to handle key rotation automatically. The signing algorithm comes from the key manager, ensuring it always matches the key type:
 
 ```go
 issuer := issuer.NewJWTTransactionTokenIssuer(issuer.JWTTransactionTokenIssuerConfig{
-	IssuerURL:        "https://example.com",
-	TTL:              5 * time.Minute,
-	SigningAlgorithm: jwa.ES256,
-	KeyManager:       rotatingKM,
+	IssuerURL:  "https://example.com",
+	TTL:        5 * time.Minute,
+	KeyManager: rotatingKM, // Algorithm provided by key manager
 	// ... other config
 })
 ```
+
+### Performance and Caching
+
+The `RotatingKeyManager` uses an in-memory cache for hot-path operations:
+
+**Cached Data:**
+- Active signing key (`crypto.Signer`)
+- Active key's algorithm
+- All non-expired public keys (for verification)
+
+**Cache Updates:**
+- Updated during initialization (`Start`)
+- Updated periodically by the background rotation goroutine (every `checkInterval`, default 1 minute)
+- Updated immediately after successful key generation and binding
+
+**Hot Path Operations (O(1), no I/O):**
+- `GetCurrentSigner()`: Returns cached active key, key ID, and algorithm
+- `PublicKeys()`: Returns cached list of all non-expired public keys
+
+**Cold Path Operations (involves state store and KeyManager):**
+- Key rotation checks (periodic, in background)
+- Key generation and binding (only when rotation needed)
+
+This architecture ensures that token signing and public key retrieval (for verification) are extremely fast, while the expensive operations (state queries, key generation) happen infrequently in the background.
 
 ### Rotation Timing
 

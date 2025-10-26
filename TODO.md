@@ -12,7 +12,7 @@ Functionality not yet well understood or yet lacking confidence the current arch
 ### Testability / test fixtures / "hermetic" mode
 
 - [X] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
-- [ ] CLI command to invoke the token service with defined fixtures and input values, in order to test claim mappers, claims filters, validator filters, etc.
+- [~] CLI command to invoke the token service with defined fixtures and input values, in order to test claim mappers, claims filters, validator filters, etc.
 
 ### HTTP configuration for data sources
 
@@ -41,9 +41,9 @@ Functionality with well understood expectations and relatively high confidence t
 
 ### Real JWT Issuer
 Implement actual JWT signing with private keys:
-- [ ] Integrate with key management (Spire KeyManager or alternatives)
-- [ ] Proper transaction token claims structure
-- [ ] Public key exposure via JWKS endpoint
+- [~] Integrate with key management (Spire KeyManager or alternatives)
+- [X] Proper transaction token claims structure
+- [~] Public key exposure via JWKS endpoint
 
 ### Static Trust Store
 Load trust domain configuration from YAML:
@@ -69,11 +69,6 @@ Add structured logging and metrics:
 - [ ] Health checks
 - [ ] Rate limiting for data sources
 - [ ] Circuit breakers for external calls
-
-### Key Management
-- [ ] Spire KeyManager integration
-- [ ] Real JWT issuer with signing (currently stub only)
-- [ ] Public key exposure (JWKS endpoint)
 
 ### Trust Store
 - [ ] Static trust store implementation (YAML config)

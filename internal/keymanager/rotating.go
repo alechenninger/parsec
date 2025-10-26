@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/alechenninger/parsec/internal/clock"
+	"github.com/alechenninger/parsec/internal/service"
 	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
 )
 
@@ -27,32 +28,30 @@ const (
 	defaultCheckInterval     = 1 * time.Minute // How often to check for rotation
 )
 
-// SignResult contains the signature and metadata about the signing operation
-type SignResult struct {
-	Signature []byte
-	KeyID     string
-	Algorithm string
-}
+// KeyID is a unique identifier for a cryptographic key
+type KeyID string
 
-// PublicKeyInfo contains public key information for verification
-type PublicKeyInfo struct {
-	KeyID     string
-	Algorithm string
-	Key       crypto.PublicKey
-}
+// Algorithm is a cryptographic algorithm identifier (e.g., "ES256", "RS256")
+type Algorithm string
 
 // RotatingKeyManager manages automatic key rotation using Spire's KeyManager
 type RotatingKeyManager struct {
 	keyManager spirekm.KeyManager
 	stateStore KeySlotStateStore
 	keyType    spirekm.KeyType
-	algorithm  string // JWT algorithm string (e.g., "RS256", "ES256")
+	algorithm  string // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
 
 	// Timing parameters
 	keyTTL            time.Duration
 	rotationThreshold time.Duration
 	gracePeriod       time.Duration
 	checkInterval     time.Duration
+
+	// Cached data (updated during rotation checks, read on hot path)
+	mu              sync.RWMutex
+	activeKey       spirekm.Key
+	activeAlgorithm string
+	publicKeys      []service.PublicKey // All non-expired public keys
 
 	clock  clock.Clock
 	stopCh chan struct{}
@@ -64,7 +63,7 @@ type RotatingKeyManagerConfig struct {
 	KeyManager spirekm.KeyManager
 	StateStore KeySlotStateStore
 	KeyType    spirekm.KeyType
-	Algorithm  string
+	Algorithm  string // JWT algorithm (e.g., "ES256", "RS256", "RS384", "RS512")
 	Clock      clock.Clock
 
 	// Optional timing overrides (uses defaults if not set)
@@ -122,6 +121,11 @@ func (r *RotatingKeyManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to ensure initial key: %w", err)
 	}
 
+	// Initialize active key cache
+	if err := r.updateActiveKeyCache(ctx); err != nil {
+		return fmt.Errorf("failed to initialize active key cache: %w", err)
+	}
+
 	// Start background rotation goroutine
 	r.wg.Add(1)
 	go r.rotationLoop()
@@ -135,90 +139,30 @@ func (r *RotatingKeyManager) Stop() {
 	r.wg.Wait()
 }
 
-// Sign signs data with the current active key
-func (r *RotatingKeyManager) Sign(ctx context.Context, data []byte) (*SignResult, error) {
-	// Get the current active key
-	keyID, err := r.getCurrentActiveKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current active key: %w", err)
+// GetCurrentSigner returns a crypto.Signer for the current active key along with its key ID and algorithm
+func (r *RotatingKeyManager) GetCurrentSigner(ctx context.Context) (crypto.Signer, KeyID, Algorithm, error) {
+	// Get the current active key and algorithm from cache (no KeyManager call on hot path)
+	r.mu.RLock()
+	key := r.activeKey
+	algorithm := r.activeAlgorithm
+	r.mu.RUnlock()
+
+	if key == nil {
+		return nil, "", "", fmt.Errorf("no active key available")
 	}
 
-	// Retrieve the key from Spire KeyManager
-	key, err := r.keyManager.GetKey(ctx, keyID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get key %s from key manager: %w", keyID, err)
-	}
-
-	// Sign the data
-	signature, err := key.Sign(nil, data, crypto.Hash(0))
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign data with key %s: %w", keyID, err)
-	}
-
-	return &SignResult{
-		Signature: signature,
-		KeyID:     keyID,
-		Algorithm: r.algorithm,
-	}, nil
+	return key, KeyID(key.ID()), Algorithm(algorithm), nil
 }
 
-// GetCurrentSigner returns a crypto.Signer for the current active key along with its key ID
-func (r *RotatingKeyManager) GetCurrentSigner(ctx context.Context) (crypto.Signer, string, error) {
-	// Get the current active key
-	keyID, err := r.getCurrentActiveKey(ctx)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get current active key: %w", err)
-	}
+// PublicKeys returns all non-expired public keys from cache
+func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
+	// Return cached public keys (no state store or KeyManager calls on hot path)
+	r.mu.RLock()
+	keys := make([]service.PublicKey, len(r.publicKeys))
+	copy(keys, r.publicKeys)
+	r.mu.RUnlock()
 
-	// Retrieve the key from Spire KeyManager
-	key, err := r.keyManager.GetKey(ctx, keyID)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get key %s from key manager: %w", keyID, err)
-	}
-
-	return key, keyID, nil
-}
-
-// PublicKeys returns all non-expired public keys
-func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]PublicKeyInfo, error) {
-	// Get all slot states
-	slots, err := r.stateStore.ListSlotStates(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list slot states: %w", err)
-	}
-
-	now := r.clock.Now()
-	var publicKeys []PublicKeyInfo
-
-	for _, slot := range slots {
-		// Skip slots without a current key
-		if slot.CurrentKeyID == nil {
-			continue
-		}
-
-		// Only include non-expired keys
-		if slot.RotationCompletedAt != nil {
-			expiresAt := slot.RotationCompletedAt.Add(r.keyTTL)
-			if !now.Before(expiresAt) {
-				continue // Expired
-			}
-		}
-
-		// Retrieve the public key from Spire KeyManager
-		key, err := r.keyManager.GetKey(ctx, *slot.CurrentKeyID)
-		if err != nil {
-			log.Printf("Warning: failed to get key %s from key manager: %v", *slot.CurrentKeyID, err)
-			continue
-		}
-
-		publicKeys = append(publicKeys, PublicKeyInfo{
-			KeyID:     *slot.CurrentKeyID,
-			Algorithm: slot.Algorithm,
-			Key:       key.Public(),
-		})
-	}
-
-	return publicKeys, nil
+	return keys, nil
 }
 
 // ensureInitialKey ensures at least one key exists, generating key-a if needed
@@ -233,7 +177,7 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 		return nil
 	}
 
-	// Initialize both slots
+	// Initialize slot A
 	now := r.clock.Now()
 
 	// Create slot A with initial key
@@ -252,16 +196,6 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 	}
 	if err := r.stateStore.SaveSlotState(ctx, slotA, -1); err != nil {
 		return fmt.Errorf("failed to save slot A state: %w", err)
-	}
-
-	// Create empty slot B
-	slotB := &KeySlotState{
-		SlotID:    KeyIDB,
-		Algorithm: r.algorithm,
-		Version:   0,
-	}
-	if err := r.stateStore.SaveSlotState(ctx, slotB, -1); err != nil {
-		return fmt.Errorf("failed to save slot B state: %w", err)
 	}
 
 	return nil
@@ -288,6 +222,10 @@ func (r *RotatingKeyManager) rotationLoop() {
 			if err := r.checkAndRotate(ctx); err != nil {
 				log.Printf("Error during key rotation check: %v", err)
 			}
+			// Update active key cache after each check (whether rotation happened or not)
+			if err := r.updateActiveKeyCache(ctx); err != nil {
+				log.Printf("Error updating active key cache: %v", err)
+			}
 		}
 	}
 }
@@ -313,11 +251,14 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 
 	// 3. Initiate rotation if not already started
 	if slotToRotate.CurrentKeyID != nil {
+		// Mark slot as preparing for rotation
 		err := r.initiateRotation(ctx, slotToRotate)
 		if err != nil && !errors.Is(err, ErrVersionMismatch) {
 			return fmt.Errorf("failed to initiate rotation: %w", err)
 		}
 		// Either succeeded or another process beat us - reload slot state
+		// TODO: not sure if we need to reload here
+		// Right now necessary b/c store updates the version
 		slotToRotate, err = r.stateStore.GetSlotState(ctx, slotToRotate.SlotID)
 		if err != nil {
 			return fmt.Errorf("failed to reload slot state after rotation initiation: %w", err)
@@ -333,7 +274,7 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 		}
 
 		// 5. Try to bind this key to the slot
-		err = r.bindKeyToSlot(ctx, slotToRotate, uniqueKeyID)
+		err = r.bindKeyToSlot(ctx, slotToRotate, uniqueKeyID, r.algorithm)
 		if errors.Is(err, ErrVersionMismatch) {
 			// Another process won the race, that's ok
 			log.Printf("Another process bound a key to slot %s, skipping", slotToRotate.SlotID)
@@ -358,13 +299,16 @@ func (r *RotatingKeyManager) initiateRotation(ctx context.Context, slot *KeySlot
 		PreviousKeyID:     slot.CurrentKeyID,
 		RotationStartedAt: &now,
 		Algorithm:         slot.Algorithm,
-		Version:           slot.Version,
+		// TODO: consider if this should be incremented here vs the state store?
+		// or should this just not be set at all here?
+		// Should we use a different write model vs read model?
+		Version: slot.Version,
 	}
 	return r.stateStore.SaveSlotState(ctx, newSlot, slot.Version)
 }
 
 // bindKeyToSlot binds a generated key to a slot
-func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotState, keyID string) error {
+func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotState, keyID string, algorithm string) error {
 	now := r.clock.Now()
 	newSlot := &KeySlotState{
 		SlotID:              slot.SlotID,
@@ -372,7 +316,7 @@ func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotSta
 		PreviousKeyID:       slot.PreviousKeyID,
 		RotationStartedAt:   slot.RotationStartedAt,
 		RotationCompletedAt: &now, // Mark when bound for grace period
-		Algorithm:           slot.Algorithm,
+		Algorithm:           algorithm,
 		Version:             slot.Version,
 	}
 	return r.stateStore.SaveSlotState(ctx, newSlot, slot.Version)
@@ -416,44 +360,71 @@ func (r *RotatingKeyManager) selectSlotForRotation(slotA, slotB *KeySlotState) *
 	return nil
 }
 
-// getCurrentActiveKey returns the currently active key ID
-// Active key is the most recent non-expired key that is past its grace period
-func (r *RotatingKeyManager) getCurrentActiveKey(ctx context.Context) (string, error) {
+// updateActiveKeyCache queries the state store and updates the cached active key and public keys
+// This is called during initialization and periodic rotation checks
+func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	slots, err := r.stateStore.ListSlotStates(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to list slot states: %w", err)
+		return fmt.Errorf("failed to list slot states: %w", err)
 	}
 
 	if len(slots) == 0 {
-		return "", errors.New("no slots available")
+		return errors.New("no slots available")
 	}
 
 	now := r.clock.Now()
 	var activeSlot *KeySlotState
+	var publicKeys []service.PublicKey
 
+	// Build list of all non-expired keys and find active key
 	for _, slot := range slots {
 		// Skip slots without a current key (rotating)
 		if slot.CurrentKeyID == nil {
 			continue
 		}
 
-		// Check grace period (based on RotationCompletedAt - when key was bound)
-		if slot.RotationCompletedAt != nil {
-			gracePeriodEnd := slot.RotationCompletedAt.Add(r.gracePeriod)
-			if now.Before(gracePeriodEnd) {
-				continue // Still in grace period
-			}
-		}
-
 		// Check if key is expired
+		isExpired := false
 		if slot.RotationCompletedAt != nil {
 			expiresAt := slot.RotationCompletedAt.Add(r.keyTTL)
 			if !now.Before(expiresAt) {
-				continue // Expired
+				isExpired = true
 			}
 		}
 
-		// Select the most recently completed rotation
+		if isExpired {
+			continue // Skip expired keys
+		}
+
+		// Retrieve the key from KeyManager for public keys list
+		key, err := r.keyManager.GetKey(ctx, *slot.CurrentKeyID)
+		if err != nil {
+			log.Printf("Warning: failed to get key %s from key manager: %v", *slot.CurrentKeyID, err)
+			continue
+		}
+
+		// Add to public keys list (includes keys in grace period)
+		publicKeys = append(publicKeys, service.PublicKey{
+			KeyID:     *slot.CurrentKeyID,
+			Algorithm: slot.Algorithm,
+			Key:       key.Public(),
+			Use:       "sig",
+		})
+
+		// Check if this key is past grace period and can be active
+		pastGracePeriod := true
+		if slot.RotationCompletedAt != nil {
+			gracePeriodEnd := slot.RotationCompletedAt.Add(r.gracePeriod)
+			if now.Before(gracePeriodEnd) {
+				pastGracePeriod = false
+			}
+		}
+
+		if !pastGracePeriod {
+			continue // Still in grace period, not eligible as active key
+		}
+
+		// Select the most recently completed rotation as active
 		if activeSlot == nil ||
 			(slot.RotationCompletedAt != nil && activeSlot.RotationCompletedAt != nil &&
 				slot.RotationCompletedAt.After(*activeSlot.RotationCompletedAt)) {
@@ -462,8 +433,21 @@ func (r *RotatingKeyManager) getCurrentActiveKey(ctx context.Context) (string, e
 	}
 
 	if activeSlot == nil || activeSlot.CurrentKeyID == nil {
-		return "", errors.New("no active key available (all keys expired or in grace period)")
+		return errors.New("no active key available (all keys expired or in grace period)")
 	}
 
-	return *activeSlot.CurrentKeyID, nil
+	// Get the active key (might already be in our list, but we need the Key object)
+	activeKey, err := r.keyManager.GetKey(ctx, *activeSlot.CurrentKeyID)
+	if err != nil {
+		return fmt.Errorf("failed to get active key %s from key manager: %w", *activeSlot.CurrentKeyID, err)
+	}
+
+	// Update all cached data atomically
+	r.mu.Lock()
+	r.activeKey = activeKey
+	r.activeAlgorithm = activeSlot.Algorithm
+	r.publicKeys = publicKeys
+	r.mu.Unlock()
+
+	return nil
 }

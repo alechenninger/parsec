@@ -23,10 +23,7 @@ type JWTTransactionTokenIssuerConfig struct {
 	// TTL is the time-to-live for tokens
 	TTL time.Duration
 
-	// SigningAlgorithm is the JWT signing algorithm (RS256, RS384, RS512, ES256, ES384, ES512)
-	SigningAlgorithm jwa.SignatureAlgorithm
-
-	// KeyManager handles key rotation and signing
+	// KeyManager handles key rotation and signing (also provides the signing algorithm)
 	KeyManager *keymanager.RotatingKeyManager
 
 	// TransactionContextMappers build the "tctx" claim
@@ -44,7 +41,6 @@ type JWTTransactionTokenIssuerConfig struct {
 type JWTTransactionTokenIssuer struct {
 	issuerURL                 string
 	ttl                       time.Duration
-	signingAlgorithm          jwa.SignatureAlgorithm
 	keyManager                *keymanager.RotatingKeyManager
 	transactionContextMappers []service.ClaimMapper
 	requestContextMappers     []service.ClaimMapper
@@ -61,7 +57,6 @@ func NewJWTTransactionTokenIssuer(cfg JWTTransactionTokenIssuerConfig) *JWTTrans
 	return &JWTTransactionTokenIssuer{
 		issuerURL:                 cfg.IssuerURL,
 		ttl:                       cfg.TTL,
-		signingAlgorithm:          cfg.SigningAlgorithm,
 		keyManager:                cfg.KeyManager,
 		transactionContextMappers: cfg.TransactionContextMappers,
 		requestContextMappers:     cfg.RequestContextMappers,
@@ -142,21 +137,21 @@ func (i *JWTTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service
 		}
 	}
 
-	// Get the current signer and key ID from the rotating key manager
-	signer, keyID, err := i.keyManager.GetCurrentSigner(ctx)
+	// Get the current signer, key ID, and algorithm from the rotating key manager
+	signer, keyID, algorithm, err := i.keyManager.GetCurrentSigner(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current signer: %w", err)
 	}
 
 	// Build JWS headers with the key ID
 	headers := jws.NewHeaders()
-	if err := headers.Set(jws.KeyIDKey, keyID); err != nil {
+	if err := headers.Set(jws.KeyIDKey, string(keyID)); err != nil {
 		return nil, fmt.Errorf("failed to set key ID header: %w", err)
 	}
 
 	// Sign the token with the current key
 	signedToken, err := jwt.Sign(token,
-		jwt.WithKey(i.signingAlgorithm, signer, jws.WithProtectedHeaders(headers)))
+		jwt.WithKey(jwa.SignatureAlgorithm(algorithm), signer, jws.WithProtectedHeaders(headers)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign token: %w", err)
 	}
@@ -172,22 +167,6 @@ func (i *JWTTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service
 // PublicKeys implements the Issuer interface
 // Returns all non-expired public keys from the rotating key manager
 func (i *JWTTransactionTokenIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
-	// Get all public keys from the rotating key manager
-	keys, err := i.keyManager.PublicKeys(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get public keys: %w", err)
-	}
-
-	// Convert to service.PublicKey format
-	publicKeys := make([]service.PublicKey, len(keys))
-	for i, key := range keys {
-		publicKeys[i] = service.PublicKey{
-			KeyID:     key.KeyID,
-			Algorithm: key.Algorithm,
-			Key:       key.Key,
-			Use:       "sig",
-		}
-	}
-
-	return publicKeys, nil
+	// Get all public keys from the rotating key manager (already in service.PublicKey format)
+	return i.keyManager.PublicKeys(ctx)
 }

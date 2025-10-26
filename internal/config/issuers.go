@@ -3,10 +3,10 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
 	keymanagerbase "github.com/spiffe/spire/pkg/server/plugin/keymanager/base"
 
@@ -149,14 +149,14 @@ func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	// Determine key type and algorithm
 	// TODO: Make this configurable
 	keyType := spirekm.ECP256
-	algorithm := jwa.ES256
+	algorithm := "ES256" // JWT signing algorithm
 
 	// Initialize rotating key manager
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		KeyManager: spireKM,
 		StateStore: stateStore,
 		KeyType:    keyType,
-		Algorithm:  algorithm.String(),
+		Algorithm:  algorithm,
 	})
 
 	// Start the rotating key manager
@@ -168,7 +168,6 @@ func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	return issuer.NewJWTTransactionTokenIssuer(issuer.JWTTransactionTokenIssuerConfig{
 		IssuerURL:                 cfg.IssuerURL,
 		TTL:                       ttl,
-		SigningAlgorithm:          algorithm,
 		KeyManager:                rotatingKM,
 		TransactionContextMappers: txnMappers,
 		RequestContextMappers:     reqMappers,
@@ -254,10 +253,7 @@ func newStubMapper(cfg ClaimMapperConfig) (service.ClaimMapper, error) {
 	}
 
 	// Convert map[string]any to claims.Claims
-	fixedClaims := make(claims.Claims)
-	for k, v := range cfg.Claims {
-		fixedClaims[k] = v
-	}
+	fixedClaims := claims.Claims(maps.Clone(cfg.Claims))
 
 	return service.NewStubClaimMapper(fixedClaims), nil
 }
