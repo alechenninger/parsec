@@ -1,12 +1,18 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v2/jwa"
+	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
+	keymanagerbase "github.com/spiffe/spire/pkg/server/plugin/keymanager/base"
+
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
+	"github.com/alechenninger/parsec/internal/keymanager"
 	"github.com/alechenninger/parsec/internal/mapper"
 	"github.com/alechenninger/parsec/internal/service"
 )
@@ -44,7 +50,7 @@ func newIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
 	case "jwt":
-		return nil, fmt.Errorf("jwt issuer not yet implemented")
+		return newJWTIssuer(cfg)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
@@ -91,6 +97,79 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	return issuer.NewStubIssuer(issuer.StubIssuerConfig{
 		IssuerURL:                 cfg.IssuerURL,
 		TTL:                       ttl,
+		TransactionContextMappers: txnMappers,
+		RequestContextMappers:     reqMappers,
+	}), nil
+}
+
+// newJWTIssuer creates a JWT transaction token issuer
+func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
+	if cfg.IssuerURL == "" {
+		return nil, fmt.Errorf("jwt issuer requires issuer_url")
+	}
+
+	// Parse TTL
+	ttl := 5 * time.Minute // default
+	if cfg.TTL != "" {
+		duration, err := time.ParseDuration(cfg.TTL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ttl: %w", err)
+		}
+		ttl = duration
+	}
+
+	// Create transaction context mappers
+	var txnMappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.TransactionContextMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create transaction context mapper %d: %w", i, err)
+		}
+		txnMappers = append(txnMappers, m)
+	}
+
+	// Create request context mappers
+	var reqMappers []service.ClaimMapper
+	for i, mapperCfg := range cfg.RequestContextMappers {
+		m, err := newClaimMapper(mapperCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request context mapper %d: %w", i, err)
+		}
+		reqMappers = append(reqMappers, m)
+	}
+
+	// Initialize Spire KeyManager (using in-memory implementation for now)
+	// TODO: Make this configurable to support different Spire KeyManager plugins
+	baseKM := keymanagerbase.New(keymanagerbase.Config{})
+	spireKM := keymanager.NewBaseAdapter(baseKM)
+
+	// Initialize key slot state store (in-memory for now)
+	stateStore := keymanager.NewInMemoryKeySlotStateStore()
+
+	// Determine key type and algorithm
+	// TODO: Make this configurable
+	keyType := spirekm.ECP256
+	algorithm := jwa.ES256
+
+	// Initialize rotating key manager
+	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+		KeyManager: spireKM,
+		StateStore: stateStore,
+		KeyType:    keyType,
+		Algorithm:  algorithm.String(),
+	})
+
+	// Start the rotating key manager
+	ctx := context.Background()
+	if err := rotatingKM.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start rotating key manager: %w", err)
+	}
+
+	return issuer.NewJWTTransactionTokenIssuer(issuer.JWTTransactionTokenIssuerConfig{
+		IssuerURL:                 cfg.IssuerURL,
+		TTL:                       ttl,
+		SigningAlgorithm:          algorithm,
+		KeyManager:                rotatingKM,
 		TransactionContextMappers: txnMappers,
 		RequestContextMappers:     reqMappers,
 	}), nil
