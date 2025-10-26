@@ -200,6 +200,14 @@ type IssuerConfig struct {
 	SigningKeyID string `koanf:"signing_key_id"` // Key ID (kid)
 	SigningAlg   string `koanf:"signing_alg"`    // Algorithm (RS256, ES256, etc.)
 
+	// KeyManager plugin configuration (HCL format)
+	// Used for JWT transaction tokens to configure the Spire KeyManager plugin
+	// Example:
+	//   KeyManager "memory" {
+	//     plugin_data {}
+	//   }
+	KeyManagerPlugin string `koanf:"key_manager_plugin"`
+
 	// Transaction token issuer fields (stub, jwt types)
 	// These mappers build the "tctx" and "req_ctx" claims
 	TransactionContextMappers []ClaimMapperConfig `koanf:"transaction_context"`

@@ -7,8 +7,40 @@ This package provides integration with Spire's KeyManager plugin interface, incl
 Spire provides a rich set of KeyManager plugin implementations for managing cryptographic keys across different backends (disk, memory, cloud KMS providers, etc.). This package provides:
 
 1. **RotatingKeyManager**: Automatic dual-key rotation with grace periods
-2. **BaseAdapter**: Adapter for Spire's keymanagerbase.Base to the KeyManager interface
+2. **Catalog Integration**: Uses Spire's catalog system to load KeyManager plugins
 3. **KeyStateStore**: Interface for persisting key state with concurrency control
+
+## KeyManager Plugin Loading
+
+Parsec uses Spire's catalog system to load KeyManager plugins. This allows you to use any of Spire's built-in KeyManager implementations:
+
+- **memory**: In-memory key storage (default, good for development/testing)
+- **disk**: File-based key storage (persists keys to disk)
+- **awskms**: AWS Key Management Service
+- **gcpkms**: Google Cloud Key Management Service
+- **azurekeyvault**: Azure Key Vault
+
+### Configuration
+
+KeyManager plugins are configured using HCL (HashiCorp Configuration Language) in the `key_manager_plugin` field of your issuer configuration:
+
+```yaml
+issuers:
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
+    type: "jwt"
+    issuer_url: "https://example.com"
+    ttl: "5m"
+    key_manager_plugin: |
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/var/lib/parsec/keys"
+        }
+      }
+```
+
+If `key_manager_plugin` is omitted, Parsec defaults to the in-memory KeyManager.
+
+See `configs/examples/parsec-keymanagers.yaml` for examples of all supported KeyManager plugins.
 
 ## RotatingKeyManager
 

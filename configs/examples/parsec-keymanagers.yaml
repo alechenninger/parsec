@@ -1,0 +1,144 @@
+# Example Parsec configuration showing different KeyManager plugin options
+# This demonstrates how to configure various Spire KeyManager plugins for JWT transaction tokens
+
+server:
+  bind_address: "0.0.0.0:8443"
+  tls:
+    cert_file: "/path/to/cert.pem"
+    key_file: "/path/to/key.pem"
+
+trust_store:
+  type: "stub_store"
+
+# Example issuers using different KeyManager plugins
+issuers:
+  # Example 1: In-memory KeyManager (default, good for testing)
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
+    type: "jwt"
+    issuer_url: "https://parsec.example.com"
+    ttl: "5m"
+    # If key_manager_plugin is omitted, defaults to memory KeyManager
+    transaction_context:
+      - type: "cel"
+        expression: |
+          {
+            "user_id": subject.sub
+          }
+    request_context:
+      - type: "cel"
+        expression: "{}"
+
+  # Example 2: Disk-based KeyManager (persists keys to disk)
+  - token_type: "urn:ietf:params:oauth:token-type:access_token"
+    type: "jwt"
+    issuer_url: "https://parsec.example.com"
+    ttl: "1h"
+    key_manager_plugin: |
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/var/lib/parsec/keys"
+        }
+      }
+    transaction_context:
+      - type: "cel"
+        expression: |
+          {
+            "user_id": subject.sub,
+            "org_id": subject.claims.org_id
+          }
+    request_context:
+      - type: "cel"
+        expression: "{}"
+
+  # Example 3: AWS KMS KeyManager (uses AWS KMS for signing)
+  # Requires AWS credentials to be configured (via env vars, IAM role, etc.)
+  - token_type: "urn:x-custom:oauth:token-type:service_token"
+    type: "jwt"
+    issuer_url: "https://parsec.example.com"
+    ttl: "15m"
+    key_manager_plugin: |
+      KeyManager "awskms" {
+        plugin_data {
+          # AWS region where KMS keys are located
+          region = "us-west-2"
+          
+          # Optional: specify access key ID and secret access key
+          # (better to use IAM roles instead)
+          # access_key_id = "AKIAIOSFODNN7EXAMPLE"
+          # secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+          
+          # Optional: KMS key policy allows spire:CreateKey
+          # key_policy_file = "/path/to/policy.json"
+        }
+      }
+    transaction_context:
+      - type: "cel"
+        expression: |
+          {
+            "service_id": subject.sub,
+            "environment": subject.claims.env
+          }
+    request_context:
+      - type: "cel"
+        expression: "{}"
+
+  # Example 4: Google Cloud KMS KeyManager
+  # Requires GCP credentials to be configured
+  - token_type: "urn:ietf:params:oauth:token-type:jwt"
+    type: "jwt"
+    issuer_url: "https://parsec.example.com"
+    ttl: "10m"
+    key_manager_plugin: |
+      KeyManager "gcpkms" {
+        plugin_data {
+          # GCP project ID
+          key_identifier_file = "/path/to/project-id.txt"
+          
+          # Optional: specify key ring and location
+          # key_ring = "parsec-keys"
+          # location = "global"
+        }
+      }
+    transaction_context:
+      - type: "cel"
+        expression: |
+          {
+            "user_id": subject.sub
+          }
+    request_context:
+      - type: "cel"
+        expression: "{}"
+
+  # Example 5: Azure Key Vault KeyManager
+  # Requires Azure credentials
+  - token_type: "urn:ietf:params:oauth:token-type:id_token"
+    type: "jwt"
+    issuer_url: "https://parsec.example.com"
+    ttl: "30m"
+    key_manager_plugin: |
+      KeyManager "azurekeyvault" {
+        plugin_data {
+          # Azure Key Vault name
+          key_vault_uri = "https://my-vault.vault.azure.net/"
+          
+          # Azure tenant ID
+          tenant_id = "00000000-0000-0000-0000-000000000000"
+          
+          # Optional: specify client credentials
+          # client_id = "00000000-0000-0000-0000-000000000000"
+          # client_secret = "secret"
+        }
+      }
+    transaction_context:
+      - type: "cel"
+        expression: |
+          {
+            "user_id": subject.sub,
+            "tenant": subject.claims.tenant_id
+          }
+    request_context:
+      - type: "cel"
+        expression: "{}"
+
+data_sources: []
+

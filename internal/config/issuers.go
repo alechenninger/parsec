@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
-	keymanagerbase "github.com/spiffe/spire/pkg/server/plugin/keymanager/base"
 
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
@@ -138,10 +138,26 @@ func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		reqMappers = append(reqMappers, m)
 	}
 
-	// Initialize Spire KeyManager (using in-memory implementation for now)
-	// TODO: Make this configurable to support different Spire KeyManager plugins
-	baseKM := keymanagerbase.New(keymanagerbase.Config{})
-	spireKM := keymanager.NewBaseAdapter(baseKM)
+	// Load KeyManager using Spire's catalog system
+	pluginHCL := cfg.KeyManagerPlugin
+	if pluginHCL == "" {
+		// Default to memory KeyManager if not specified
+		pluginHCL = `KeyManager "memory" {
+			plugin_data {}
+		}`
+	}
+
+	// TODO: Make logger configurable
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel) // Only show warnings/errors for plugins
+
+	spireKM, catalogCloser, err := keymanager.LoadKeyManagerFromHCL(context.Background(), pluginHCL, log)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load KeyManager plugin: %w", err)
+	}
+	// Note: catalogCloser should be closed when the application shuts down
+	// For now, we'll let it live for the application lifetime
+	_ = catalogCloser
 
 	// Initialize key slot state store (in-memory for now)
 	stateStore := keymanager.NewInMemoryKeySlotStateStore()

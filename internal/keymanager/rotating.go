@@ -54,8 +54,7 @@ type RotatingKeyManager struct {
 	publicKeys      []service.PublicKey // All non-expired public keys
 
 	clock  clock.Clock
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	ticker clock.Ticker
 }
 
 // RotatingKeyManagerConfig configures the RotatingKeyManager
@@ -110,7 +109,6 @@ func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
 		gracePeriod:       gracePeriod,
 		checkInterval:     checkInterval,
 		clock:             clk,
-		stopCh:            make(chan struct{}),
 	}
 }
 
@@ -126,17 +124,31 @@ func (r *RotatingKeyManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize active key cache: %w", err)
 	}
 
-	// Start background rotation goroutine
-	r.wg.Add(1)
-	go r.rotationLoop()
+	// Start background rotation ticker
+	r.ticker = r.clock.Ticker(r.checkInterval)
+	if err := r.ticker.Start(r.doRotationCheck); err != nil {
+		return fmt.Errorf("failed to start rotation ticker: %w", err)
+	}
 
 	return nil
 }
 
 // Stop gracefully stops the background rotation process
 func (r *RotatingKeyManager) Stop() {
-	close(r.stopCh)
-	r.wg.Wait()
+	if r.ticker != nil {
+		r.ticker.Stop()
+	}
+}
+
+// doRotationCheck is called periodically by the ticker to check for rotation needs
+func (r *RotatingKeyManager) doRotationCheck(ctx context.Context) {
+	if err := r.checkAndRotate(ctx); err != nil {
+		log.Printf("Error during key rotation check: %v", err)
+	}
+	// Update active key cache after each check (whether rotation happened or not)
+	if err := r.updateActiveKeyCache(ctx); err != nil {
+		log.Printf("Error updating active key cache: %v", err)
+	}
 }
 
 // GetCurrentSigner returns a crypto.Signer for the current active key along with its key ID and algorithm
@@ -187,10 +199,14 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 		return fmt.Errorf("failed to generate initial key: %w", err)
 	}
 
+	// Set RotationCompletedAt in the past (past grace period) so the initial key is immediately active
+	// There's no need for a grace period on the initial key since there's no previous key to transition from
+	rotationCompletedAt := now.Add(-r.gracePeriod - 1*time.Second)
+
 	slotA := &KeySlotState{
 		SlotID:              KeyIDA,
 		CurrentKeyID:        &keyID,
-		RotationCompletedAt: &now,
+		RotationCompletedAt: &rotationCompletedAt,
 		Algorithm:           r.algorithm,
 		Version:             0,
 	}
@@ -206,30 +222,6 @@ func (r *RotatingKeyManager) generateKeyID(slotID string) string {
 	return fmt.Sprintf("%s-%s", slotID, uuid.New().String())
 }
 
-// rotationLoop runs in the background, checking for rotation needs
-func (r *RotatingKeyManager) rotationLoop() {
-	defer r.wg.Done()
-
-	ticker := time.NewTicker(r.checkInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-r.stopCh:
-			return
-		case <-ticker.C:
-			ctx := context.Background()
-			if err := r.checkAndRotate(ctx); err != nil {
-				log.Printf("Error during key rotation check: %v", err)
-			}
-			// Update active key cache after each check (whether rotation happened or not)
-			if err := r.updateActiveKeyCache(ctx); err != nil {
-				log.Printf("Error updating active key cache: %v", err)
-			}
-		}
-	}
-}
-
 // checkAndRotate checks if rotation is needed and performs it
 func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 	// 1. Read slot states
@@ -243,68 +235,43 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 		return fmt.Errorf("failed to get slot B state: %w", errB)
 	}
 
-	// 2. Determine which slot needs rotation
-	slotToRotate := r.selectSlotForRotation(slotA, slotB)
-	if slotToRotate == nil {
+	// 2. Determine which slot needs rotation and which slot to rotate TO
+	sourceSlot, targetSlot := r.selectSlotsForRotation(slotA, slotB)
+	if sourceSlot == nil || targetSlot == nil {
 		return nil // No rotation needed
 	}
 
-	// 3. Initiate rotation if not already started
-	if slotToRotate.CurrentKeyID != nil {
-		// Mark slot as preparing for rotation
-		err := r.initiateRotation(ctx, slotToRotate)
-		if err != nil && !errors.Is(err, ErrVersionMismatch) {
-			return fmt.Errorf("failed to initiate rotation: %w", err)
-		}
-		// Either succeeded or another process beat us - reload slot state
-		// TODO: not sure if we need to reload here
-		// Right now necessary b/c store updates the version
-		slotToRotate, err = r.stateStore.GetSlotState(ctx, slotToRotate.SlotID)
-		if err != nil {
-			return fmt.Errorf("failed to reload slot state after rotation initiation: %w", err)
-		}
-	}
-
-	// 4. Generate key with unique ID if slot needs a new key
-	if slotToRotate.CurrentKeyID == nil {
-		uniqueKeyID := r.generateKeyID(slotToRotate.SlotID)
-		_, err := r.keyManager.GenerateKey(ctx, uniqueKeyID, r.keyType)
-		if err != nil {
-			return fmt.Errorf("failed to generate key: %w", err)
-		}
-
-		// 5. Try to bind this key to the slot
-		err = r.bindKeyToSlot(ctx, slotToRotate, uniqueKeyID, r.algorithm)
-		if errors.Is(err, ErrVersionMismatch) {
-			// Another process won the race, that's ok
-			log.Printf("Another process bound a key to slot %s, skipping", slotToRotate.SlotID)
+	// 3. Check if target slot already has a fresh (non-expired) key
+	if targetSlot.CurrentKeyID != nil && targetSlot.RotationCompletedAt != nil {
+		now := r.clock.Now()
+		expiresAt := targetSlot.RotationCompletedAt.Add(r.keyTTL)
+		if now.Before(expiresAt) {
+			// Target slot has a non-expired key, rotation already happened
 			return nil
 		}
-		if err != nil {
-			return fmt.Errorf("failed to bind key to slot: %w", err)
-		}
-
-		log.Printf("Bound new key %s to slot %s", uniqueKeyID, slotToRotate.SlotID)
 	}
+
+	// 4. Generate key with unique ID in the target slot
+	uniqueKeyID := r.generateKeyID(targetSlot.SlotID)
+	_, err := r.keyManager.GenerateKey(ctx, uniqueKeyID, r.keyType)
+	if err != nil {
+		return fmt.Errorf("failed to generate key: %w", err)
+	}
+
+	// 5. Try to bind this key to the target slot
+	err = r.bindKeyToSlot(ctx, targetSlot, uniqueKeyID, r.algorithm)
+	if errors.Is(err, ErrVersionMismatch) {
+		// Another process won the race, that's ok
+		log.Printf("Another process bound a key to slot %s, skipping", targetSlot.SlotID)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to bind key to slot: %w", err)
+	}
+
+	log.Printf("Bound new key %s to slot %s", uniqueKeyID, targetSlot.SlotID)
 
 	return nil
-}
-
-// initiateRotation marks a slot as needing rotation
-func (r *RotatingKeyManager) initiateRotation(ctx context.Context, slot *KeySlotState) error {
-	now := r.clock.Now()
-	newSlot := &KeySlotState{
-		SlotID:            slot.SlotID,
-		CurrentKeyID:      nil, // Null out to indicate rotation needed
-		PreviousKeyID:     slot.CurrentKeyID,
-		RotationStartedAt: &now,
-		Algorithm:         slot.Algorithm,
-		// TODO: consider if this should be incremented here vs the state store?
-		// or should this just not be set at all here?
-		// Should we use a different write model vs read model?
-		Version: slot.Version,
-	}
-	return r.stateStore.SaveSlotState(ctx, newSlot, slot.Version)
 }
 
 // bindKeyToSlot binds a generated key to a slot
@@ -313,17 +280,18 @@ func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotSta
 	newSlot := &KeySlotState{
 		SlotID:              slot.SlotID,
 		CurrentKeyID:        &keyID,
-		PreviousKeyID:       slot.PreviousKeyID,
-		RotationStartedAt:   slot.RotationStartedAt,
-		RotationCompletedAt: &now, // Mark when bound for grace period
-		Algorithm:           algorithm,
+		PreviousKeyID:       slot.CurrentKeyID, // Keep reference to previous key
+		RotationCompletedAt: &now,              // Mark when bound for grace period
+		Algorithm:           algorithm,         // Use provided algorithm for the slot
 		Version:             slot.Version,
 	}
 	return r.stateStore.SaveSlotState(ctx, newSlot, slot.Version)
 }
 
-// selectSlotForRotation determines which slot needs rotation
-func (r *RotatingKeyManager) selectSlotForRotation(slotA, slotB *KeySlotState) *KeySlotState {
+// selectSlotsForRotation determines which slot needs rotation and which slot to rotate to
+// Returns (sourceSlot, targetSlot) where sourceSlot has the key that needs rotation
+// and targetSlot is where the new key should be placed
+func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlotState) (*KeySlotState, *KeySlotState) {
 	now := r.clock.Now()
 
 	// Helper to check if slot needs rotation
@@ -332,32 +300,52 @@ func (r *RotatingKeyManager) selectSlotForRotation(slotA, slotB *KeySlotState) *
 			return false
 		}
 
-		// If CurrentKeyID is nil, slot is already in rotation state
+		// If CurrentKeyID is nil, slot doesn't have a key
 		if slot.CurrentKeyID == nil {
-			return true
+			return false
 		}
 
-		// Check if key is approaching expiration
+		// Check if key is expired - expired keys don't need rotation
 		if slot.RotationCompletedAt != nil {
 			expiresAt := slot.RotationCompletedAt.Add(r.keyTTL)
+			if !now.Before(expiresAt) {
+				// Key is expired or expiring now, don't rotate it
+				return false
+			}
+
+			// Check if key is approaching expiration (within rotation threshold)
 			rotateAt := expiresAt.Add(-r.rotationThreshold)
-			return now.After(rotateAt)
+			return !now.Before(rotateAt) // >= rotateAt
 		}
 
 		return false
 	}
 
-	// Check slot A first
+	// Check slot A - if it needs rotation, rotate to slot B
 	if needsRotation(slotA) {
-		return slotA
+		// Initialize slot B state if it doesn't exist
+		if slotB == nil {
+			slotB = &KeySlotState{
+				SlotID:  KeyIDB,
+				Version: -1, // Will create new
+			}
+		}
+		return slotA, slotB
 	}
 
-	// Check slot B
+	// Check slot B - if it needs rotation, rotate to slot A
 	if needsRotation(slotB) {
-		return slotB
+		// Initialize slot A state if it doesn't exist (shouldn't happen but be safe)
+		if slotA == nil {
+			slotA = &KeySlotState{
+				SlotID:  KeyIDA,
+				Version: -1,
+			}
+		}
+		return slotB, slotA
 	}
 
-	return nil
+	return nil, nil
 }
 
 // updateActiveKeyCache queries the state store and updates the cached active key and public keys
