@@ -22,30 +22,35 @@ func testLogger() logrus.FieldLogger {
 	return log
 }
 
-// Helper to create a test RotatingKeyManager with a fake clock
-func newTestRotatingKeyManager(t *testing.T, clk clock.Clock) (*RotatingKeyManager, spirekm.KeyManager) {
-	// Load an in-memory Spire KeyManager via catalog
-	ctx := context.Background()
-	pluginHCL := `KeyManager "memory" {
+// Helper to create a test RotatingKeyManager with a fake clock and in memory storage
+func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, stateStore KeySlotStateStore, keyManager spirekm.KeyManager) (*RotatingKeyManager, spirekm.KeyManager) {
+	if keyManager == nil {
+		// Load an in-memory Spire KeyManager via catalog
+		ctx := context.Background()
+		pluginHCL := `KeyManager "memory" {
 		plugin_data {}
 	}`
 
-	log := testLogger()
-	spireKM, closer, err := LoadKeyManagerFromHCL(ctx, pluginHCL, log)
-	require.NoError(t, err)
-	require.NotNil(t, spireKM)
-	t.Cleanup(func() {
-		if closer != nil {
-			closer.Close()
-		}
-	})
+		log := testLogger()
+		spireKM, closer, err := LoadKeyManagerFromHCL(ctx, pluginHCL, log)
+		require.NoError(t, err)
+		require.NotNil(t, spireKM)
+		t.Cleanup(func() {
+			if closer != nil {
+				closer.Close()
+			}
+		})
+		keyManager = spireKM
+	}
 
-	// Create in-memory state store
-	stateStore := NewInMemoryKeySlotStateStore()
+	// Create in-memory state store if needed
+	if stateStore == nil {
+		stateStore = NewInMemoryKeySlotStateStore()
+	}
 
 	// Create rotating key manager with short timings for testing
 	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
-		KeyManager: spireKM,
+		KeyManager: keyManager,
 		StateStore: stateStore,
 		KeyType:    spirekm.ECP256,
 		Algorithm:  "ES256",
@@ -57,12 +62,13 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock) (*RotatingKeyManag
 		CheckInterval:     10 * time.Second,
 	})
 
-	return rm, spireKM
+	return rm, keyManager
 }
 
 func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -78,9 +84,35 @@ func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
 	assert.Equal(t, Algorithm("ES256"), algorithm)
 }
 
+func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
+	// Use a specific time for the clock to make assertions clear
+	startTime := time.Date(2025, 10, 27, 12, 0, 0, 0, time.UTC)
+	clk := clock.NewFixtureClock(startTime)
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+
+	ctx := context.Background()
+
+	// Start should generate initial key
+	err := rm.Start(ctx)
+	require.NoError(t, err)
+	defer rm.Stop()
+
+	// Check that the initial key's RotationCompletedAt is set to the current clock time
+	// (not backdated to circumvent grace period)
+	stateStore := rm.stateStore
+	slotA, err := stateStore.GetSlotState(ctx, KeyIDA)
+	require.NoError(t, err)
+	require.NotNil(t, slotA)
+	require.NotNil(t, slotA.RotationCompletedAt, "initial key should have RotationCompletedAt set")
+
+	assert.Equal(t, startTime, *slotA.RotationCompletedAt,
+		"initial key RotationCompletedAt should equal clock time (not backdated)")
+}
+
 func TestRotatingKeyManager_InitialKeyInGracePeriod(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -100,7 +132,8 @@ func TestRotatingKeyManager_InitialKeyInGracePeriod(t *testing.T) {
 
 func TestRotatingKeyManager_PublicKeysIncludesGracePeriodKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -121,7 +154,8 @@ func TestRotatingKeyManager_PublicKeysIncludesGracePeriodKeys(t *testing.T) {
 
 func TestRotatingKeyManager_KeyRotation(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -161,7 +195,8 @@ func TestRotatingKeyManager_KeyRotation(t *testing.T) {
 
 func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -196,7 +231,8 @@ func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
 
 func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -230,7 +266,8 @@ func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
 
 func TestRotatingKeyManager_SigningWorks(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -265,7 +302,8 @@ func TestRotatingKeyManager_SigningWorks(t *testing.T) {
 
 func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -315,7 +353,8 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 
 func TestRotatingKeyManager_StateStoreOptimisticLocking(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -355,7 +394,7 @@ func TestRotatingKeyManager_StateStoreOptimisticLocking(t *testing.T) {
 
 func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, spireKM := newTestRotatingKeyManager(t, clk)
+	rm, spireKM := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -388,7 +427,8 @@ func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 
 func TestRotatingKeyManager_NoKeysBeforeStart(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -404,7 +444,8 @@ func TestRotatingKeyManager_NoKeysBeforeStart(t *testing.T) {
 
 func TestRotatingKeyManager_StopPreventsRotation(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -432,7 +473,8 @@ func TestRotatingKeyManager_StopPreventsRotation(t *testing.T) {
 
 func TestRotatingKeyManager_AlgorithmFromSlotState(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, _ := newTestRotatingKeyManager(t, clk)
+
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -452,4 +494,32 @@ func TestRotatingKeyManager_AlgorithmFromSlotState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, publicKeys, 1)
 	assert.Equal(t, "ES256", publicKeys[0].Algorithm)
+}
+
+func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
+	clk := clock.NewFixtureClock(time.Time{})
+	stateStore := NewInMemoryKeySlotStateStore()
+	rm, km := newTestRotatingKeyManager(t, clk, stateStore, nil)
+
+	ctx := context.Background()
+
+	startTime := clk.Now()
+
+	err := rm.Start(ctx)
+	require.NoError(t, err)
+	defer rm.Stop()
+
+	clk.Advance(10 * time.Second)
+
+	// Now create a new store, reusing same key state
+	rm2, _ := newTestRotatingKeyManager(t, clk, stateStore, km)
+
+	err = rm2.Start(ctx)
+	require.NoError(t, err)
+	defer rm2.Stop()
+
+	states, err := stateStore.ListSlotStates(ctx)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	assert.Equal(t, startTime, *states[0].RotationCompletedAt)
 }

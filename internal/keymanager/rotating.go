@@ -213,9 +213,9 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 		return fmt.Errorf("failed to generate initial key: %w", err)
 	}
 
-	// Set RotationCompletedAt in the past (past grace period) so the initial key is immediately active
-	// There's no need for a grace period on the initial key since there's no previous key to transition from
-	rotationCompletedAt := now.Add(-r.gracePeriod - 1*time.Second)
+	// Set RotationCompletedAt to now for the initial key
+	// The active key selection logic will use this key even during grace period if it's the only one available
+	rotationCompletedAt := now
 
 	slotA := &KeySlotState{
 		SlotID:              KeyIDA,
@@ -378,7 +378,10 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	var activeSlot *KeySlotState
 	var publicKeys []service.PublicKey
 
-	// Build list of all non-expired keys and find active key
+	// Build list of all non-expired keys and categorize by grace period status
+	var preferredSlots []*KeySlotState // Keys past grace period
+	var fallbackSlots []*KeySlotState  // Keys still in grace period
+
 	for _, slot := range slots {
 		// Skip slots without a current key (rotating)
 		if slot.CurrentKeyID == nil {
@@ -413,7 +416,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 			Use:       "sig",
 		})
 
-		// Check if this key is past grace period and can be active
+		// Check if this key is past grace period
 		pastGracePeriod := true
 		if slot.RotationCompletedAt != nil {
 			gracePeriodEnd := slot.RotationCompletedAt.Add(r.gracePeriod)
@@ -422,20 +425,26 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 			}
 		}
 
-		if !pastGracePeriod {
-			continue // Still in grace period, not eligible as active key
-		}
-
-		// Select the most recently completed rotation as active
-		if activeSlot == nil ||
-			(slot.RotationCompletedAt != nil && activeSlot.RotationCompletedAt != nil &&
-				slot.RotationCompletedAt.After(*activeSlot.RotationCompletedAt)) {
-			activeSlot = slot
+		// Categorize by grace period status
+		if pastGracePeriod {
+			preferredSlots = append(preferredSlots, slot)
+		} else {
+			fallbackSlots = append(fallbackSlots, slot)
 		}
 	}
 
+	// Select active key: prefer keys past grace period (newest),
+	// fall back to keys in grace period (oldest for longest distribution time)
+	if len(preferredSlots) > 0 {
+		// Use newest key past grace period (most recently completed rotation)
+		activeSlot = findNewestSlot(preferredSlots)
+	} else if len(fallbackSlots) > 0 {
+		// Use oldest key in grace period (gives longest time for distribution)
+		activeSlot = findOldestSlot(fallbackSlots)
+	}
+
 	if activeSlot == nil || activeSlot.CurrentKeyID == nil {
-		return errors.New("no active key available (all keys expired or in grace period)")
+		return errors.New("no keys available")
 	}
 
 	// Get the active key (might already be in our list, but we need the Key object)
@@ -452,4 +461,41 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	r.mu.Unlock()
 
 	return nil
+}
+
+// findNewestSlot returns the slot with the most recent RotationCompletedAt timestamp.
+// This is used to select the active key from slots that are past their grace period.
+func findNewestSlot(slots []*KeySlotState) *KeySlotState {
+	if len(slots) == 0 {
+		return nil
+	}
+
+	newest := slots[0]
+	for _, slot := range slots[1:] {
+		if slot.RotationCompletedAt != nil && newest.RotationCompletedAt != nil {
+			if slot.RotationCompletedAt.After(*newest.RotationCompletedAt) {
+				newest = slot
+			}
+		}
+	}
+	return newest
+}
+
+// findOldestSlot returns the slot with the earliest RotationCompletedAt timestamp.
+// This is used to select a fallback key from slots still in their grace period,
+// giving the key the longest time for distribution before becoming active.
+func findOldestSlot(slots []*KeySlotState) *KeySlotState {
+	if len(slots) == 0 {
+		return nil
+	}
+
+	oldest := slots[0]
+	for _, slot := range slots[1:] {
+		if slot.RotationCompletedAt != nil && oldest.RotationCompletedAt != nil {
+			if slot.RotationCompletedAt.Before(*oldest.RotationCompletedAt) {
+				oldest = slot
+			}
+		}
+	}
+	return oldest
 }
