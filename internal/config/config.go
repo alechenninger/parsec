@@ -188,27 +188,22 @@ type IssuerConfig struct {
 	TokenType string `koanf:"token_type"`
 
 	// Type selects the issuer implementation
-	// Options: "stub", "unsigned", "jwt", "rh_identity"
+	// Options: "stub", "unsigned", "transaction_token", "rh_identity"
 	Type string `koanf:"type"`
 
 	// Common fields
 	IssuerURL string `koanf:"issuer_url"`
 	TTL       string `koanf:"ttl"` // Duration string like "5m"
 
-	// JWT issuer fields
-	SigningKey   string `koanf:"signing_key"`    // Path to signing key
-	SigningKeyID string `koanf:"signing_key_id"` // Key ID (kid)
-	SigningAlg   string `koanf:"signing_alg"`    // Algorithm (RS256, ES256, etc.)
-
 	// KeyManager plugin configuration (HCL format)
-	// Used for JWT transaction tokens to configure the Spire KeyManager plugin
+	// Used for transaction tokens to configure the Spire KeyManager plugin
 	// Example:
 	//   KeyManager "memory" {
 	//     plugin_data {}
 	//   }
 	KeyManagerPlugin string `koanf:"key_manager_plugin"`
 
-	// Transaction token issuer fields (stub, jwt types)
+	// Transaction token issuer fields (stub, transaction_token types)
 	// These mappers build the "tctx" and "req_ctx" claims
 	TransactionContextMappers []ClaimMapperConfig `koanf:"transaction_context"`
 	RequestContextMappers     []ClaimMapperConfig `koanf:"request_context"`
