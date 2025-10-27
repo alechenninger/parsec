@@ -4,7 +4,7 @@ This document tracks planned work and next steps for the parsec project.
 
 ## End to end
 
-- [ ] Example set up that issues tokens compatible with identity header
+- [X] Example set up that issues tokens compatible with identity header
 
 ## Experiments
 Functionality not yet well understood or yet lacking confidence the current architecture is correct.
@@ -12,7 +12,9 @@ Functionality not yet well understood or yet lacking confidence the current arch
 ### Testability / test fixtures / "hermetic" mode
 
 - [X] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
-- [~] CLI command to invoke the token service with defined fixtures and input values, in order to test claim mappers, claims filters, validator filters, etc.
+- [~] Example using production config with fixtures overlaid to write tests against input/output pairs
+- [ ] Ability to stand up hermetic server with fixture APIs (credential issuers)
+- [ ] Support key managemetn fixtures
 
 ### HTTP configuration for data sources
 
@@ -41,20 +43,21 @@ Functionality with well understood expectations and relatively high confidence t
 
 ### Real JWT Issuer
 Implement actual JWT signing with private keys:
-- [~] Integrate with key management (Spire KeyManager or alternatives)
+- [X] Integrate with key management (Spire KeyManager or alternatives)
 - [X] Proper transaction token claims structure
-- [~] Public key exposure via JWKS endpoint
+- [X] Public key exposure via JWKS endpoint
+- [ ] Ensure state store works with multiple signing issuers
 
 ### Static Trust Store
 Load trust domain configuration from YAML:
-- [ ] Define configuration schema
-- [ ] Multi-issuer support
-- [ ] JWKS URL configuration per issuer
+- [X] Define configuration schema
+- [X] Multi-issuer support
+- [X] JWKS URL configuration per issuer
 
 ### Configuration Management
 Complete configuration loading:
-- [ ] YAML configuration file format
-- [ ] Environment variable overrides
+- [X] YAML configuration file format
+- [X] Environment variable overrides
 - [ ] Validation and hot reload
 
 ### Observability
@@ -66,31 +69,6 @@ Add structured logging and metrics:
 
 ### Production Hardening
 - [ ] Graceful shutdown
-- [ ] Health checks
-- [ ] Rate limiting for data sources
+- [ ] Health checks – use standard grpc health protocol
 - [ ] Circuit breakers for external calls
-
-### Trust Store
-- [ ] Static trust store implementation (YAML config)
-- [ ] Dynamic/reloadable trust store
-- [ ] Multi-issuer support in store
-
-### Configuration
-- [ ] Configuration file format (YAML)
-- [ ] Configuration loading and validation
-- [ ] Environment variable overrides
-- [ ] Hot reload support
-
-### Observability
-- [ ] Structured logging (zerolog or similar)
-- [ ] Metrics (Prometheus)
-- [ ] Distributed tracing (OpenTelemetry)
-- [ ] Health/readiness checks
-
-### Production Readiness
-- [ ] Graceful shutdown
-- [ ] Rate limiting
-- [ ] Circuit breakers for external data sources
-- [ ] Comprehensive error handling
-- [ ] Production deployment examples
 

@@ -41,10 +41,10 @@ validators:
 # Defined fixtures for testing
 fixtures:
   - type: jwks
-    issuer: prod-jwt-issuer
+    issuer_name: prod-jwt-issuer
     url: https://idp.example.com/.well-known/jwks.json
   - type: ca_bundle_file
-    issuer: mtls-issuer
+    issuer_name: mtls-issuer
     path: /path/to/ca.pem
   - type: http_rule
     request:
@@ -53,6 +53,9 @@ fixtures:
     response:
       status: 200
       # etc...  
+  - type: keymanager
+    token_type: "urn:ietf:params:oauth:token-type:txn_token"
+    
 ```
 
 Fixtures should have a config-based API as well as a usable Go API. Tests can then simply be written as separate go tests which use parsec as a library, given the production configuration, and installed fixtures via the Go API. This Go API then also exposes methods for testing as needed, e.g. CA and JWKS fixtures should allow issuing or signing credentials.
