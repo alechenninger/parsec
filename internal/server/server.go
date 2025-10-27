@@ -25,6 +25,7 @@ type Server struct {
 
 	authzServer    *AuthzServer
 	exchangeServer *ExchangeServer
+	jwksServer     *JWKSServer
 }
 
 // Config contains server configuration
@@ -34,6 +35,7 @@ type Config struct {
 
 	AuthzServer    *AuthzServer
 	ExchangeServer *ExchangeServer
+	JWKSServer     *JWKSServer
 }
 
 // New creates a new server with the given configuration
@@ -43,6 +45,7 @@ func New(cfg Config) *Server {
 		httpPort:       cfg.HTTPPort,
 		authzServer:    cfg.AuthzServer,
 		exchangeServer: cfg.ExchangeServer,
+		jwksServer:     cfg.JWKSServer,
 	}
 }
 
@@ -54,6 +57,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Register services
 	authv3.RegisterAuthorizationServer(s.grpcServer, s.authzServer)
 	parsecv1.RegisterTokenExchangeServer(s.grpcServer, s.exchangeServer)
+	parsecv1.RegisterJWKSServer(s.grpcServer, s.jwksServer)
 
 	// Register reflection service for grpcurl and other tools
 	reflection.Register(s.grpcServer)
@@ -82,6 +86,9 @@ func (s *Server) Start(ctx context.Context) error {
 	endpoint := fmt.Sprintf("localhost:%d", s.grpcPort)
 	if err := parsecv1.RegisterTokenExchangeHandlerFromEndpoint(ctx, mux, endpoint, opts); err != nil {
 		return fmt.Errorf("failed to register token exchange handler: %w", err)
+	}
+	if err := parsecv1.RegisterJWKSHandlerFromEndpoint(ctx, mux, endpoint, opts); err != nil {
+		return fmt.Errorf("failed to register JWKS handler: %w", err)
 	}
 
 	// Start HTTP server

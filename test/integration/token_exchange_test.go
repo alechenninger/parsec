@@ -17,7 +17,7 @@ import (
 )
 
 // setupTestDependencies creates stub implementations for testing
-func setupTestDependencies() (trust.Store, *service.TokenService) {
+func setupTestDependencies() (trust.Store, *service.TokenService, service.Registry) {
 	trustStore := trust.NewStubStore()
 
 	stubValidator := trust.NewStubValidator(trust.CredentialTypeBearer)
@@ -41,7 +41,7 @@ func setupTestDependencies() (trust.Store, *service.TokenService) {
 	trustDomain := "parsec.test"
 	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
 
-	return trustStore, tokenService
+	return trustStore, tokenService, issuerRegistry
 }
 
 // TestTokenExchangeFormEncoded tests that the token exchange endpoint
@@ -51,7 +51,7 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	trustStore, tokenService := setupTestDependencies()
+	trustStore, tokenService, issuerRegistry := setupTestDependencies()
 
 	// Create claims filter registry for request context filtering
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
@@ -62,6 +62,7 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 		HTTPPort:       18080,
 		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
 		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
 	if err := srv.Start(ctx); err != nil {
@@ -131,7 +132,7 @@ func TestTokenExchangeJSON(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	trustStore, tokenService := setupTestDependencies()
+	trustStore, tokenService, issuerRegistry := setupTestDependencies()
 
 	// Create claims filter registry for request context filtering
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
@@ -142,6 +143,7 @@ func TestTokenExchangeJSON(t *testing.T) {
 		HTTPPort:       18081,
 		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
 		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
 	if err := srv.Start(ctx); err != nil {

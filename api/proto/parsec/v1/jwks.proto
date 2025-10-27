@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package parsec.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/alechenninger/parsec/api/gen/parsec/v1;parsecv1";
+
+// JWKS provides JSON Web Key Set discovery per RFC 7517.
+// https://www.rfc-editor.org/rfc/rfc7517.html
+service JWKS {
+  // GetJWKS returns the JSON Web Key Set containing all public keys
+  // from all configured issuers. This endpoint is typically used by
+  // clients to verify signed tokens.
+  rpc GetJWKS(GetJWKSRequest) returns (GetJWKSResponse) {
+    option (google.api.http) = {
+      get: "/v1/jwks.json"
+      additional_bindings {
+        get: "/.well-known/jwks.json"
+      }
+    };
+  }
+}
+
+// GetJWKSRequest is the request for retrieving the JWKS.
+// Currently empty as no parameters are needed.
+message GetJWKSRequest {}
+
+// GetJWKSResponse contains the JSON Web Key Set per RFC 7517 Section 5.
+message GetJWKSResponse {
+  // keys is an array of JSON Web Keys.
+  // Each key represents a public key that can be used to verify tokens.
+  repeated JSONWebKey keys = 1;
+}
+
+// JSONWebKey represents a single public key per RFC 7517 Section 4.
+message JSONWebKey {
+  // kty (Key Type) identifies the cryptographic algorithm family used with the key.
+  // Common values: "RSA", "EC", "OKP"
+  string kty = 1;
+
+  // use (Public Key Use) identifies the intended use of the public key.
+  // Common values: "sig" (signature), "enc" (encryption)
+  string use = 2;
+
+  // key_ops (Key Operations) identifies the operation(s) for which the key is intended to be used.
+  // Examples: "sign", "verify", "encrypt", "decrypt"
+  repeated string key_ops = 3;
+
+  // alg (Algorithm) identifies the algorithm intended for use with the key.
+  // Examples: "RS256", "ES256", "EdDSA"
+  string alg = 4;
+
+  // kid (Key ID) is used to match a specific key.
+  // This is used during key rotation to identify which key was used to sign a token.
+  string kid = 5;
+
+  // x5u (X.509 URL) is a URI that refers to a resource for an X.509 public key certificate or certificate chain.
+  string x5u = 6;
+
+  // x5c (X.509 Certificate Chain) contains a chain of one or more PKIX certificates.
+  repeated string x5c = 7;
+
+  // x5t (X.509 Certificate SHA-1 Thumbprint) is a base64url-encoded SHA-1 thumbprint of the DER encoding of an X.509 certificate.
+  string x5t = 8;
+
+  // x5t_s256 (X.509 Certificate SHA-256 Thumbprint) is a base64url-encoded SHA-256 thumbprint of the DER encoding of an X.509 certificate.
+  string x5t_s256 = 9;
+
+  // Key-specific parameters (RSA)
+  // n (Modulus) - RSA public key modulus
+  string n = 10;
+  // e (Exponent) - RSA public key exponent
+  string e = 11;
+
+  // Key-specific parameters (Elliptic Curve)
+  // crv (Curve) - EC curve name
+  string crv = 12;
+  // x (X Coordinate) - EC public key x coordinate
+  string x = 13;
+  // y (Y Coordinate) - EC public key y coordinate  
+  string y = 14;
+
+  // Key-specific parameters (EdDSA)
+  // For EdDSA keys, the public key is in the 'x' parameter
+}
+

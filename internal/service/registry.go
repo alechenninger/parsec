@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -50,4 +52,53 @@ func (r *SimpleRegistry) ListTokenTypes() []TokenType {
 	}
 
 	return types
+}
+
+// GetAllPublicKeys returns all public keys from all registered issuers.
+// It collects keys from all issuers, aggregating any errors that occur.
+// Returns the collected keys along with any errors encountered.
+// If some issuers succeed and others fail, both keys and an error are returned.
+func (r *SimpleRegistry) GetAllPublicKeys(ctx context.Context) ([]PublicKey, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var allKeys []PublicKey
+	var errs []error
+
+	for tokenType, issuer := range r.issuers {
+		keys, err := issuer.PublicKeys(ctx)
+		if err != nil {
+			// Collect error with context about which issuer failed
+			errs = append(errs, fmt.Errorf("issuer for %s: %w", tokenType, err))
+			continue
+		}
+
+		allKeys = append(allKeys, keys...)
+	}
+
+	// Return collected keys along with aggregated errors (if any)
+	if len(errs) > 0 {
+		return allKeys, newPublicKeysError(errs)
+	}
+
+	return allKeys, nil
+}
+
+// newPublicKeysError creates an aggregated error from multiple issuer errors
+func newPublicKeysError(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+
+	if len(errs) == 1 {
+		return fmt.Errorf("failed to get public keys from 1 issuer: %w", errs[0])
+	}
+
+	var errMsgs []string
+	for _, err := range errs {
+		errMsgs = append(errMsgs, err.Error())
+	}
+
+	return fmt.Errorf("failed to get public keys from %d issuers: %s",
+		len(errs), strings.Join(errMsgs, "; "))
 }

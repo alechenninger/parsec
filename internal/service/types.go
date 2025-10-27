@@ -1,5 +1,7 @@
 package service
 
+import "context"
+
 // TokenType identifies the type of token being issued
 type TokenType string
 
@@ -24,4 +26,8 @@ type Registry interface {
 
 	// ListTokenTypes returns all registered token types
 	ListTokenTypes() []TokenType
+
+	// GetAllPublicKeys returns all public keys from all registered issuers
+	// This is useful for JWKS endpoints that need to serve all public keys at once
+	GetAllPublicKeys(ctx context.Context) ([]PublicKey, error)
 }

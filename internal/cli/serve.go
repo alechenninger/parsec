@@ -92,14 +92,31 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get exchange server claims filter registry: %w", err)
 	}
 
+	// Get issuer registry for JWKS endpoint
+	issuerRegistry, err := provider.IssuerRegistry()
+	if err != nil {
+		return fmt.Errorf("failed to get issuer registry: %w", err)
+	}
+
 	// 6. Create service handlers
 	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes)
 	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
+	jwksServer := server.NewJWKSServer(server.JWKSServerConfig{
+		IssuerRegistry: issuerRegistry,
+		// Use default refresh interval (1 minute)
+	})
+
+	// Start JWKS background refresh
+	if err := jwksServer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start JWKS server: %w", err)
+	}
+	defer jwksServer.Stop()
 
 	// 7. Create server configuration
 	serverCfg := provider.ServerConfig()
 	serverCfg.AuthzServer = authzServer
 	serverCfg.ExchangeServer = exchangeServer
+	serverCfg.JWKSServer = jwksServer
 
 	// 8. Create and start server
 	srv := server.New(serverCfg)
@@ -110,6 +127,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	fmt.Println("parsec is running")
 	fmt.Printf("  gRPC (ext_authz):      localhost:%d\n", serverCfg.GRPCPort)
 	fmt.Printf("  HTTP (token exchange): http://localhost:%d/v1/token\n", serverCfg.HTTPPort)
+	fmt.Printf("  HTTP (JWKS):           http://localhost:%d/v1/jwks.json\n", serverCfg.HTTPPort)
+	fmt.Printf("                         http://localhost:%d/.well-known/jwks.json\n", serverCfg.HTTPPort)
 	fmt.Printf("  Trust Domain:          %s\n", provider.TrustDomain())
 	fmt.Printf("  Config:                %s\n", configPath)
 
