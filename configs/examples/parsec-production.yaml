@@ -44,19 +44,19 @@ trust_store:
 
 # Data sources with distributed caching
 data_sources:
-  # User permissions from central authorization service
-  - name: user_permissions
+  # User entitlements from central authorization service
+  - name: user_entitlements
     type: lua
-    script_file: /etc/parsec/scripts/user_permissions.lua
+    script_file: /etc/parsec/scripts/user_entitlements.lua
     config:
-      permissions_api: "https://authz.internal.example.com"
+      entitlements_api: "https://entitlements.internal.example.com"
       api_key: "inject-via-env-var"  # Use PARSEC_DATA_SOURCES__0__CONFIG__API_KEY
     http:
       timeout: 30s
     caching:
       type: distributed
       ttl: 5m
-      group_name: "permissions-cache"
+      group_name: "entitlements-cache"
       cache_size: 268435456  # 256 MB
   
   # Organization metadata
@@ -75,28 +75,24 @@ data_sources:
       cache_size: 104857600  # 100 MB
 
 # Token issuers
-# TODO: Replace with JWT issuer with proper signing in production
 issuers:
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
-    type: unsigned
+    type: transaction_token
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
-    # Claim mappers build the token content
-    claim_mappers:
-      # Include subject identity
-      - type: passthrough
-      
-      # Add permissions and org context
-      - type: cel
-        script: |
+    transaction_context:
+      - type: "cel"
+        expression: |
           {
-            "sub": subject.subject,
-            "permissions": datasource("user_permissions").permissions,
-            "org_id": datasource("org_metadata").org_id,
-            "org_tier": datasource("org_metadata").tier
+            "service_id": subject.sub,
+            "environment": subject.claims.env
           }
-    # In production, use JWT issuer:
-    # type: jwt
-    # signing_key: /etc/parsec/keys/signing-key.pem
-    # signing_key_id: prod-key-2024
-    # signing_alg: RS256
+    request_context:
+      - type: "cel"
+        expression: "{}"
+    key_manager_plugin: |
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/var/lib/parsec/keys"
+        }
+      }

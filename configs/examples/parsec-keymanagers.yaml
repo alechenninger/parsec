@@ -14,7 +14,7 @@ trust_store:
 issuers:
   # Example 1: In-memory KeyManager (default, good for testing)
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
-    type: "jwt"
+    type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "5m"
     # If key_manager_plugin is omitted, defaults to memory KeyManager
@@ -30,7 +30,7 @@ issuers:
 
   # Example 2: Disk-based KeyManager (persists keys to disk)
   - token_type: "urn:ietf:params:oauth:token-type:access_token"
-    type: "jwt"
+    type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "1h"
     key_manager_plugin: |
@@ -53,7 +53,7 @@ issuers:
   # Example 3: AWS KMS KeyManager (uses AWS KMS for signing)
   # Requires AWS credentials to be configured (via env vars, IAM role, etc.)
   - token_type: "urn:x-custom:oauth:token-type:service_token"
-    type: "jwt"
+    type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "15m"
     key_manager_plugin: |
@@ -85,7 +85,7 @@ issuers:
   # Example 4: Google Cloud KMS KeyManager
   # Requires GCP credentials to be configured
   - token_type: "urn:ietf:params:oauth:token-type:jwt"
-    type: "jwt"
+    type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "10m"
     key_manager_plugin: |
@@ -112,7 +112,7 @@ issuers:
   # Example 5: Azure Key Vault KeyManager
   # Requires Azure credentials
   - token_type: "urn:ietf:params:oauth:token-type:id_token"
-    type: "jwt"
+    type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "30m"
     key_manager_plugin: |

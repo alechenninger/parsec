@@ -280,7 +280,7 @@ Issuers create tokens:
 ```yaml
 issuers:
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
-    type: stub  # stub, unsigned, jwt
+    type: stub  # stub, unsigned, transaction_token, rh_identity
     issuer_url: "https://parsec.example.com"
     ttl: 5m
 ```
@@ -295,7 +295,8 @@ issuers:
 
 - `stub` - Simple test tokens (includes subject and transaction ID)
 - `unsigned` - Base64-encoded JSON tokens (never expires)
-- `jwt` - Signed JWT tokens (not yet implemented)
+- `transaction_token` - Signed transaction tokens using a KeyManager (follows OAuth transaction token spec)
+- `rh_identity` - Red Hat identity tokens (x-rh-identity format)
 
 ## Examples
 

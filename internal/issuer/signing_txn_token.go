@@ -15,8 +15,8 @@ import (
 	"github.com/alechenninger/parsec/internal/service"
 )
 
-// JWTTransactionTokenIssuerConfig is the configuration for creating a JWT transaction token issuer
-type JWTTransactionTokenIssuerConfig struct {
+// SigningTransactionTokenIssuerConfig is the configuration for creating a signing transaction token issuer
+type SigningTransactionTokenIssuerConfig struct {
 	// IssuerURL is the issuer URL (iss claim)
 	IssuerURL string
 
@@ -36,9 +36,15 @@ type JWTTransactionTokenIssuerConfig struct {
 	Clock clock.Clock
 }
 
-// JWTTransactionTokenIssuer issues JWT transaction tokens per draft-ietf-oauth-transaction-tokens
-// It uses a RotatingKeyManager for key rotation and signing operations
-type JWTTransactionTokenIssuer struct {
+// SigningTransactionTokenIssuer issues signed transaction tokens per draft-ietf-oauth-transaction-tokens.
+// It uses a RotatingKeyManager for key rotation and signing operations.
+//
+// This issuer differs from unsigned/stub issuers in that it:
+// - Issues tokens following the OAuth transaction token specification
+// - Performs signing itself using a key manager abstraction
+// - Supports key rotation for enhanced security
+// - As opposed to delegating to an external transaction token service
+type SigningTransactionTokenIssuer struct {
 	issuerURL                 string
 	ttl                       time.Duration
 	keyManager                *keymanager.RotatingKeyManager
@@ -47,14 +53,14 @@ type JWTTransactionTokenIssuer struct {
 	clock                     clock.Clock
 }
 
-// NewJWTTransactionTokenIssuer creates a new JWT transaction token issuer
-func NewJWTTransactionTokenIssuer(cfg JWTTransactionTokenIssuerConfig) *JWTTransactionTokenIssuer {
+// NewSigningTransactionTokenIssuer creates a new signing transaction token issuer
+func NewSigningTransactionTokenIssuer(cfg SigningTransactionTokenIssuerConfig) *SigningTransactionTokenIssuer {
 	clk := cfg.Clock
 	if clk == nil {
 		clk = clock.NewSystemClock()
 	}
 
-	return &JWTTransactionTokenIssuer{
+	return &SigningTransactionTokenIssuer{
 		issuerURL:                 cfg.IssuerURL,
 		ttl:                       cfg.TTL,
 		keyManager:                cfg.KeyManager,
@@ -66,7 +72,7 @@ func NewJWTTransactionTokenIssuer(cfg JWTTransactionTokenIssuerConfig) *JWTTrans
 
 // Issue implements the Issuer interface
 // Issues a signed JWT transaction token per draft-ietf-oauth-transaction-tokens
-func (i *JWTTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
+func (i *SigningTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
 	// Apply transaction context mappers
 	transactionContext, err := issueCtx.ToClaims(ctx, i.transactionContextMappers)
 	if err != nil {
@@ -166,7 +172,7 @@ func (i *JWTTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service
 
 // PublicKeys implements the Issuer interface
 // Returns all non-expired public keys from the rotating key manager
-func (i *JWTTransactionTokenIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
+func (i *SigningTransactionTokenIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
 	// Get all public keys from the rotating key manager (already in service.PublicKey format)
 	return i.keyManager.PublicKeys(ctx)
 }

@@ -49,12 +49,12 @@ func newIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		return newStubIssuer(cfg)
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
-	case "jwt":
-		return newJWTIssuer(cfg)
+	case "transaction_token":
+		return newSigningTransactionTokenIssuer(cfg)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
-		return nil, fmt.Errorf("unknown issuer type: %s (supported: stub, unsigned, jwt, rh_identity)", cfg.Type)
+		return nil, fmt.Errorf("unknown issuer type: %s (supported: stub, unsigned, transaction_token, rh_identity)", cfg.Type)
 	}
 }
 
@@ -102,10 +102,11 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	}), nil
 }
 
-// newJWTIssuer creates a JWT transaction token issuer
-func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
+// newSigningTransactionTokenIssuer creates a signing transaction token issuer.
+// This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
+func newSigningTransactionTokenIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
-		return nil, fmt.Errorf("jwt issuer requires issuer_url")
+		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}
 
 	// Parse TTL
@@ -181,7 +182,7 @@ func newJWTIssuer(cfg IssuerConfig) (service.Issuer, error) {
 		return nil, fmt.Errorf("failed to start rotating key manager: %w", err)
 	}
 
-	return issuer.NewJWTTransactionTokenIssuer(issuer.JWTTransactionTokenIssuerConfig{
+	return issuer.NewSigningTransactionTokenIssuer(issuer.SigningTransactionTokenIssuerConfig{
 		IssuerURL:                 cfg.IssuerURL,
 		TTL:                       ttl,
 		KeyManager:                rotatingKM,
