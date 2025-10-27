@@ -23,7 +23,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/spiffe/go-spiffe/v2 v2.6.0
 	github.com/spiffe/spire v1.13.3
-	github.com/spiffe/spire-plugin-sdk v1.4.4-0.20250606112051-68609d83ce7c
+	github.com/stretchr/testify v1.11.1
 	github.com/yuin/gopher-lua v1.1.1
 	google.golang.org/genproto/googleapis/api v0.0.0-20250825161204-c5933d9347a5
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251006185510-65f7160b3a87
@@ -116,8 +116,8 @@ require (
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/spiffe/spire-api-sdk v1.2.5-0.20250109200630-101d5e7de758 // indirect
+	github.com/spiffe/spire-plugin-sdk v1.4.4-0.20250606112051-68609d83ce7c // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
 	github.com/uber-go/tally/v4 v4.1.17 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect

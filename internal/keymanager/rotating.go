@@ -41,11 +41,25 @@ type RotatingKeyManager struct {
 	keyType    spirekm.KeyType
 	algorithm  string // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
 
-	// Timing parameters
-	keyTTL            time.Duration
+	// Timing parameters:
+	//
+	// key            TTL -                 rotation time +
+	// generated      rotation threshold    grace period       TTL
+	// ^--------------^---------------------^------------------^-------->
+	//                new key generated     new key used       previous key removed
+
+	// How long a key is available before it is no longer valid and must not be trusted.
+	keyTTL time.Duration
+	// How long within the key TTL that we consider the key to be eligible for rotation
 	rotationThreshold time.Duration
-	gracePeriod       time.Duration
-	checkInterval     time.Duration
+	// How long after a key is generated that it is not eligible for use.
+	// This should be some time less than rotation threshold,
+	// so that we do not mint any tokens with the old key immediately before it expires.
+	// However, it should not be too small,
+	// to ensure clients have enough time to download the new key before it is used.
+	gracePeriod time.Duration
+	// How often to check for rotation and if key state has changed from another process.
+	checkInterval time.Duration
 
 	// Cached data (updated during rotation checks, read on hot path)
 	mu              sync.RWMutex
