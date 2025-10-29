@@ -23,7 +23,7 @@ func testLogger() logrus.FieldLogger {
 }
 
 // Helper to create a test RotatingKeyManager with a fake clock and in memory storage
-func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, stateStore KeySlotStateStore, keyManager spirekm.KeyManager) (*RotatingKeyManager, spirekm.KeyManager) {
+func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager spirekm.KeyManager) (*RotatingKeyManager, spirekm.KeyManager) {
 	if keyManager == nil {
 		// Load an in-memory Spire KeyManager via catalog
 		ctx := context.Background()
@@ -43,15 +43,15 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, stateStore KeySlot
 		keyManager = spireKM
 	}
 
-	// Create in-memory state store if needed
-	if stateStore == nil {
-		stateStore = NewInMemoryKeySlotStateStore()
+	// Create in-memory slot store if needed
+	if slotStore == nil {
+		slotStore = NewInMemoryKeySlotStore()
 	}
 
 	// Create rotating key manager with short timings for testing
 	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
 		KeyManager: keyManager,
-		StateStore: stateStore,
+		SlotStore:  slotStore,
 		KeyType:    spirekm.ECP256,
 		Algorithm:  "ES256",
 		Clock:      clk,
@@ -99,8 +99,8 @@ func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
 
 	// Check that the initial key's RotationCompletedAt is set to the current clock time
 	// (not backdated to circumvent grace period)
-	stateStore := rm.stateStore
-	slotA, err := stateStore.GetSlotState(ctx, KeyIDA)
+	slotStore := rm.slotStore
+	slotA, err := slotStore.GetSlot(ctx, KeyIDA)
 	require.NoError(t, err)
 	require.NotNil(t, slotA)
 	require.NotNil(t, slotA.RotationCompletedAt, "initial key should have RotationCompletedAt set")
@@ -351,7 +351,7 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	assert.Contains(t, keyIDs[3], "key-b")
 }
 
-func TestRotatingKeyManager_StateStoreOptimisticLocking(t *testing.T) {
+func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
 	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
@@ -365,29 +365,29 @@ func TestRotatingKeyManager_StateStoreOptimisticLocking(t *testing.T) {
 	// Wait for initial key in slot A
 	clk.Advance(10 * time.Second)
 
-	// Get the state store
-	stateStore := rm.stateStore
+	// Get the slot store
+	slotStore := rm.slotStore
 
 	// Trigger a rotation (creates key in slot B)
 	clk.Advance(23 * time.Minute)
 
 	// Verify slotB was created with version 0
-	slotB, err := stateStore.GetSlotState(ctx, KeyIDB)
+	slotB, err := slotStore.GetSlot(ctx, KeyIDB)
 	require.NoError(t, err)
 	require.NotNil(t, slotB)
 	assert.Equal(t, int64(0), slotB.Version, "new slot should start at version 0")
 
 	// Test optimistic locking: try to update with wrong version
-	slotB.Algorithm = "RS512"                       // Modify something
-	err = stateStore.SaveSlotState(ctx, slotB, 999) // Wrong version
+	slotB.Algorithm = "RS512"                 // Modify something
+	err = slotStore.SaveSlot(ctx, slotB, 999) // Wrong version
 	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with wrong version")
 
 	// Update with correct version should succeed
-	err = stateStore.SaveSlotState(ctx, slotB, slotB.Version)
+	err = slotStore.SaveSlot(ctx, slotB, slotB.Version)
 	require.NoError(t, err, "should succeed with correct version")
 
 	// Verify version incremented
-	slotB2, err := stateStore.GetSlotState(ctx, KeyIDB)
+	slotB2, err := slotStore.GetSlot(ctx, KeyIDB)
 	require.NoError(t, err)
 	assert.Greater(t, slotB2.Version, slotB.Version, "version should increment after update")
 }
@@ -498,8 +498,8 @@ func TestRotatingKeyManager_AlgorithmFromSlotState(t *testing.T) {
 
 func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	stateStore := NewInMemoryKeySlotStateStore()
-	rm, km := newTestRotatingKeyManager(t, clk, stateStore, nil)
+	slotStore := NewInMemoryKeySlotStore()
+	rm, km := newTestRotatingKeyManager(t, clk, slotStore, nil)
 
 	ctx := context.Background()
 
@@ -511,15 +511,15 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 
 	clk.Advance(10 * time.Second)
 
-	// Now create a new store, reusing same key state
-	rm2, _ := newTestRotatingKeyManager(t, clk, stateStore, km)
+	// Now create a new manager, reusing same slot store
+	rm2, _ := newTestRotatingKeyManager(t, clk, slotStore, km)
 
 	err = rm2.Start(ctx)
 	require.NoError(t, err)
 	defer rm2.Stop()
 
-	states, err := stateStore.ListSlotStates(ctx)
+	slots, err := slotStore.ListSlots(ctx)
 	require.NoError(t, err)
-	require.Len(t, states, 1)
-	assert.Equal(t, startTime, *states[0].RotationCompletedAt)
+	require.Len(t, slots, 1)
+	assert.Equal(t, startTime, *slots[0].RotationCompletedAt)
 }

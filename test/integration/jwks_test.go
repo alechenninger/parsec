@@ -47,10 +47,10 @@ func TestJWKSEndpoint(t *testing.T) {
 		defer closer.Close()
 	}
 
-	stateStore := keymanager.NewInMemoryKeySlotStateStore()
+	slotStore := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		KeyManager: spireKM,
-		StateStore: stateStore,
+		SlotStore:  slotStore,
 		KeyType:    spirekm.ECP256,
 		Algorithm:  "ES256",
 	})
@@ -213,10 +213,10 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		defer closer1.Close()
 	}
 
-	stateStore1 := keymanager.NewInMemoryKeySlotStateStore()
+	slotStore1 := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM1 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		KeyManager: spireKM1,
-		StateStore: stateStore1,
+		SlotStore:  slotStore1,
 		KeyType:    spirekm.ECP256,
 		Algorithm:  "ES256",
 	})
@@ -248,10 +248,10 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		defer closer2.Close()
 	}
 
-	stateStore2 := keymanager.NewInMemoryKeySlotStateStore()
+	slotStore2 := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM2 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		KeyManager: spireKM2,
-		StateStore: stateStore2,
+		SlotStore:  slotStore2,
 		KeyType:    spirekm.ECP384,
 		Algorithm:  "ES384",
 	})

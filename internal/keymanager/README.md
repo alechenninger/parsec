@@ -8,7 +8,7 @@ Spire provides a rich set of KeyManager plugin implementations for managing cryp
 
 1. **RotatingKeyManager**: Automatic dual-key rotation with grace periods
 2. **Catalog Integration**: Uses Spire's catalog system to load KeyManager plugins
-3. **KeyStateStore**: Interface for persisting key state with concurrency control
+3. **KeySlotStore**: Interface for persisting key slots with concurrency control
 
 ## KeyManager Plugin Loading
 
@@ -74,7 +74,7 @@ The `RotatingKeyManager` requires both a Spire `KeyType` (which determines the c
 
 ### Algorithm Migration
 
-The `RotatingKeyManager` stores the algorithm in the slot state, not just in the manager configuration. This enables gradual algorithm migration:
+The `RotatingKeyManager` stores the algorithm in the key slot, not just in the manager configuration. This enables gradual algorithm migration:
 
 1. **Current state**: Keys are signed with `RS256`
 2. **Configuration change**: Update the manager config to use `RS512`
@@ -121,13 +121,13 @@ import (
 baseKM := keymanagerbase.New(keymanagerbase.Config{})
 spireKM := keymanager.NewBaseAdapter(baseKM)
 
-// Initialize key state store
-stateStore := keymanager.NewInMemoryKeySlotStateStore()
+// Initialize key slot store
+slotStore := keymanager.NewInMemoryKeySlotStore()
 
 // Create rotating key manager
 rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 	KeyManager: spireKM,
-	StateStore: stateStore,
+	SlotStore:  slotStore,
 	KeyType:    spirekm.ECP256,
 	Algorithm:  "ES256", // JWT signing algorithm
 	// Optional: override defaults
@@ -215,22 +215,21 @@ The rotation follows this pattern:
 - Grace period: 2 hours after generation
 - Check interval: 1 minute
 
-### Key State Store
+### Key Slot Store
 
-The `KeyStateStore` interface provides persistent storage for key metadata with optimistic locking:
+The `KeySlotStore` interface provides persistent storage for key slots with optimistic locking:
 
 ```go
-type KeyStateStore interface {
-	GetKeyState(ctx context.Context, keyID string) (*KeyState, error)
-	SaveKeyState(ctx context.Context, state *KeyState, expectedVersion *time.Time) error
-	ListKeyStates(ctx context.Context) ([]*KeyState, error)
-	DeleteKeyState(ctx context.Context, keyID string) error
+type KeySlotStore interface {
+	GetSlot(ctx context.Context, slotID string) (*KeySlot, error)
+	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion int64) error
+	ListSlots(ctx context.Context) ([]*KeySlot, error)
 }
 ```
 
-**In-memory implementation**: `InMemoryKeyStateStore` provides a thread-safe in-memory implementation suitable for development and testing.
+**In-memory implementation**: `InMemoryKeySlotStore` provides a thread-safe in-memory implementation suitable for development and testing.
 
-**Production use**: For production deployments with multiple instances, implement a persistent KeyStateStore backed by a database or distributed storage.
+**Production use**: For production deployments with multiple instances, implement a persistent `KeySlotStore` backed by a database or distributed storage.
 
 ## BaseAdapter
 

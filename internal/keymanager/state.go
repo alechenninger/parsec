@@ -8,15 +8,15 @@ import (
 )
 
 var (
-	// ErrSlotStateNotFound is returned when a slot state doesn't exist
-	ErrSlotStateNotFound = errors.New("slot state not found")
+	// ErrSlotNotFound is returned when a slot doesn't exist
+	ErrSlotNotFound = errors.New("slot not found")
 
 	// ErrVersionMismatch is returned when optimistic locking fails
-	ErrVersionMismatch = errors.New("version mismatch: state was modified by another process")
+	ErrVersionMismatch = errors.New("version mismatch: slot was modified by another process")
 )
 
-// KeySlotState represents the state of a key slot
-type KeySlotState struct {
+// KeySlot represents a key slot with its current and previous keys
+type KeySlot struct {
 	SlotID              string     // "key-a" or "key-b"
 	CurrentKeyID        *string    // Currently active key ID (nil when rotating)
 	PreviousKeyID       *string    // Previous key ID (for cleanup tracking)
@@ -26,52 +26,52 @@ type KeySlotState struct {
 	Version             int64      // For optimistic locking
 }
 
-// KeySlotStateStore is an interface for persisting key slot state with concurrency control
-type KeySlotStateStore interface {
-	// GetSlotState retrieves the state for a specific slot ID
-	GetSlotState(ctx context.Context, slotID string) (*KeySlotState, error)
+// KeySlotStore is an interface for persisting key slots with concurrency control
+type KeySlotStore interface {
+	// GetSlot retrieves a specific slot by ID
+	GetSlot(ctx context.Context, slotID string) (*KeySlot, error)
 
-	// SaveSlotState saves slot state atomically, returning error if version mismatch
+	// SaveSlot saves a slot atomically, returning error if version mismatch
 	// expectedVersion is used for optimistic locking (-1 means create new)
-	SaveSlotState(ctx context.Context, state *KeySlotState, expectedVersion int64) error
+	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion int64) error
 
-	// ListSlotStates returns all slot states
-	ListSlotStates(ctx context.Context) ([]*KeySlotState, error)
+	// ListSlots returns all slots
+	ListSlots(ctx context.Context) ([]*KeySlot, error)
 }
 
-// InMemoryKeySlotStateStore is an in-memory implementation of KeySlotStateStore
-type InMemoryKeySlotStateStore struct {
-	mu     sync.RWMutex
-	states map[string]*KeySlotState
+// InMemoryKeySlotStore is an in-memory implementation of KeySlotStore
+type InMemoryKeySlotStore struct {
+	mu    sync.RWMutex
+	slots map[string]*KeySlot
 }
 
-// NewInMemoryKeySlotStateStore creates a new in-memory key slot state store
-func NewInMemoryKeySlotStateStore() *InMemoryKeySlotStateStore {
-	return &InMemoryKeySlotStateStore{
-		states: make(map[string]*KeySlotState),
+// NewInMemoryKeySlotStore creates a new in-memory key slot store
+func NewInMemoryKeySlotStore() *InMemoryKeySlotStore {
+	return &InMemoryKeySlotStore{
+		slots: make(map[string]*KeySlot),
 	}
 }
 
-// GetSlotState retrieves the state for a specific slot ID
-func (s *InMemoryKeySlotStateStore) GetSlotState(ctx context.Context, slotID string) (*KeySlotState, error) {
+// GetSlot retrieves a specific slot by ID
+func (s *InMemoryKeySlotStore) GetSlot(ctx context.Context, slotID string) (*KeySlot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	state, ok := s.states[slotID]
+	slot, ok := s.slots[slotID]
 	if !ok {
-		return nil, ErrSlotStateNotFound
+		return nil, ErrSlotNotFound
 	}
 
 	// Return a deep copy to prevent external modifications
-	return s.copyState(state), nil
+	return s.copySlot(slot), nil
 }
 
-// SaveSlotState saves slot state atomically with optimistic locking
-func (s *InMemoryKeySlotStateStore) SaveSlotState(ctx context.Context, state *KeySlotState, expectedVersion int64) error {
+// SaveSlot saves a slot atomically with optimistic locking
+func (s *InMemoryKeySlotStore) SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	existing, exists := s.states[state.SlotID]
+	existing, exists := s.slots[slot.SlotID]
 
 	// If expectedVersion is -1, we expect the slot to not exist (create operation)
 	if expectedVersion == -1 {
@@ -89,52 +89,52 @@ func (s *InMemoryKeySlotStateStore) SaveSlotState(ctx context.Context, state *Ke
 	}
 
 	// Save a deep copy and increment version
-	stateCopy := s.copyState(state)
-	stateCopy.Version = expectedVersion + 1
-	s.states[state.SlotID] = stateCopy
+	slotCopy := s.copySlot(slot)
+	slotCopy.Version = expectedVersion + 1
+	s.slots[slot.SlotID] = slotCopy
 
 	return nil
 }
 
-// ListSlotStates returns all slot states
-func (s *InMemoryKeySlotStateStore) ListSlotStates(ctx context.Context) ([]*KeySlotState, error) {
+// ListSlots returns all slots
+func (s *InMemoryKeySlotStore) ListSlots(ctx context.Context) ([]*KeySlot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	states := make([]*KeySlotState, 0, len(s.states))
-	for _, state := range s.states {
+	slots := make([]*KeySlot, 0, len(s.slots))
+	for _, slot := range s.slots {
 		// Return deep copies to prevent external modifications
-		states = append(states, s.copyState(state))
+		slots = append(slots, s.copySlot(slot))
 	}
 
-	return states, nil
+	return slots, nil
 }
 
-// copyState creates a deep copy of a KeySlotState
-func (s *InMemoryKeySlotStateStore) copyState(state *KeySlotState) *KeySlotState {
-	copy := &KeySlotState{
-		SlotID:    state.SlotID,
-		Algorithm: state.Algorithm,
-		Version:   state.Version,
+// copySlot creates a deep copy of a KeySlot
+func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
+	copy := &KeySlot{
+		SlotID:    slot.SlotID,
+		Algorithm: slot.Algorithm,
+		Version:   slot.Version,
 	}
 
-	if state.CurrentKeyID != nil {
-		keyID := *state.CurrentKeyID
+	if slot.CurrentKeyID != nil {
+		keyID := *slot.CurrentKeyID
 		copy.CurrentKeyID = &keyID
 	}
 
-	if state.PreviousKeyID != nil {
-		keyID := *state.PreviousKeyID
+	if slot.PreviousKeyID != nil {
+		keyID := *slot.PreviousKeyID
 		copy.PreviousKeyID = &keyID
 	}
 
-	if state.RotationStartedAt != nil {
-		t := *state.RotationStartedAt
+	if slot.RotationStartedAt != nil {
+		t := *slot.RotationStartedAt
 		copy.RotationStartedAt = &t
 	}
 
-	if state.RotationCompletedAt != nil {
-		t := *state.RotationCompletedAt
+	if slot.RotationCompletedAt != nil {
+		t := *slot.RotationCompletedAt
 		copy.RotationCompletedAt = &t
 	}
 

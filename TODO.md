@@ -47,6 +47,7 @@ Implement actual JWT signing with private keys:
 - [X] Proper transaction token claims structure
 - [X] Public key exposure via JWKS endpoint
 - [ ] Ensure state store works with multiple signing issuers
+- [ ] 2nd pass on concurrency control / implement real impl with ConfigMap
 
 ### Static Trust Store
 Load trust domain configuration from YAML:
@@ -69,6 +70,6 @@ Add structured logging and metrics:
 
 ### Production Hardening
 - [ ] Graceful shutdown
-- [ ] Health checks – use standard grpc health protocol
+- [ ] Health checks – use standard grpc health protocol (separate readiness and liveness services)
 - [ ] Circuit breakers for external calls
 

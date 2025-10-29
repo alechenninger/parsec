@@ -37,7 +37,7 @@ type Algorithm string
 // RotatingKeyManager manages automatic key rotation using Spire's KeyManager
 type RotatingKeyManager struct {
 	keyManager spirekm.KeyManager
-	stateStore KeySlotStateStore
+	slotStore  KeySlotStore
 	keyType    spirekm.KeyType
 	algorithm  string // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
 
@@ -74,7 +74,7 @@ type RotatingKeyManager struct {
 // RotatingKeyManagerConfig configures the RotatingKeyManager
 type RotatingKeyManagerConfig struct {
 	KeyManager spirekm.KeyManager
-	StateStore KeySlotStateStore
+	SlotStore  KeySlotStore
 	KeyType    spirekm.KeyType
 	Algorithm  string // JWT algorithm (e.g., "ES256", "RS256", "RS384", "RS512")
 	Clock      clock.Clock
@@ -115,7 +115,7 @@ func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
 
 	return &RotatingKeyManager{
 		keyManager:        cfg.KeyManager,
-		stateStore:        cfg.StateStore,
+		slotStore:         cfg.SlotStore,
 		keyType:           cfg.KeyType,
 		algorithm:         cfg.Algorithm,
 		keyTTL:            keyTTL,
@@ -193,9 +193,9 @@ func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]service.PublicKe
 
 // ensureInitialKey ensures at least one key exists, generating key-a if needed
 func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
-	slots, err := r.stateStore.ListSlotStates(ctx)
+	slots, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list slot states: %w", err)
+		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
 	// If we have any slots, we're good
@@ -217,15 +217,15 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 	// The active key selection logic will use this key even during grace period if it's the only one available
 	rotationCompletedAt := now
 
-	slotA := &KeySlotState{
+	slotA := &KeySlot{
 		SlotID:              KeyIDA,
 		CurrentKeyID:        &keyID,
 		RotationCompletedAt: &rotationCompletedAt,
 		Algorithm:           r.algorithm,
 		Version:             0,
 	}
-	if err := r.stateStore.SaveSlotState(ctx, slotA, -1); err != nil {
-		return fmt.Errorf("failed to save slot A state: %w", err)
+	if err := r.slotStore.SaveSlot(ctx, slotA, -1); err != nil {
+		return fmt.Errorf("failed to save slot A: %w", err)
 	}
 
 	return nil
@@ -238,15 +238,15 @@ func (r *RotatingKeyManager) generateKeyID(slotID string) string {
 
 // checkAndRotate checks if rotation is needed and performs it
 func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
-	// 1. Read slot states
-	slotA, errA := r.stateStore.GetSlotState(ctx, KeyIDA)
-	if errA != nil && !errors.Is(errA, ErrSlotStateNotFound) {
-		return fmt.Errorf("failed to get slot A state: %w", errA)
+	// 1. Read slots
+	slotA, errA := r.slotStore.GetSlot(ctx, KeyIDA)
+	if errA != nil && !errors.Is(errA, ErrSlotNotFound) {
+		return fmt.Errorf("failed to get slot A: %w", errA)
 	}
 
-	slotB, errB := r.stateStore.GetSlotState(ctx, KeyIDB)
-	if errB != nil && !errors.Is(errB, ErrSlotStateNotFound) {
-		return fmt.Errorf("failed to get slot B state: %w", errB)
+	slotB, errB := r.slotStore.GetSlot(ctx, KeyIDB)
+	if errB != nil && !errors.Is(errB, ErrSlotNotFound) {
+		return fmt.Errorf("failed to get slot B: %w", errB)
 	}
 
 	// 2. Determine which slot needs rotation and which slot to rotate TO
@@ -289,9 +289,9 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 }
 
 // bindKeyToSlot binds a generated key to a slot
-func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotState, keyID string, algorithm string) error {
+func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlot, keyID string, algorithm string) error {
 	now := r.clock.Now()
-	newSlot := &KeySlotState{
+	newSlot := &KeySlot{
 		SlotID:              slot.SlotID,
 		CurrentKeyID:        &keyID,
 		PreviousKeyID:       slot.CurrentKeyID, // Keep reference to previous key
@@ -299,17 +299,17 @@ func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlotSta
 		Algorithm:           algorithm,         // Use provided algorithm for the slot
 		Version:             slot.Version,
 	}
-	return r.stateStore.SaveSlotState(ctx, newSlot, slot.Version)
+	return r.slotStore.SaveSlot(ctx, newSlot, slot.Version)
 }
 
 // selectSlotsForRotation determines which slot needs rotation and which slot to rotate to
 // Returns (sourceSlot, targetSlot) where sourceSlot has the key that needs rotation
 // and targetSlot is where the new key should be placed
-func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlotState) (*KeySlotState, *KeySlotState) {
+func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*KeySlot, *KeySlot) {
 	now := r.clock.Now()
 
 	// Helper to check if slot needs rotation
-	needsRotation := func(slot *KeySlotState) bool {
+	needsRotation := func(slot *KeySlot) bool {
 		if slot == nil {
 			return false
 		}
@@ -337,9 +337,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlotState) 
 
 	// Check slot A - if it needs rotation, rotate to slot B
 	if needsRotation(slotA) {
-		// Initialize slot B state if it doesn't exist
+		// Initialize slot B if it doesn't exist
 		if slotB == nil {
-			slotB = &KeySlotState{
+			slotB = &KeySlot{
 				SlotID:  KeyIDB,
 				Version: -1, // Will create new
 			}
@@ -349,9 +349,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlotState) 
 
 	// Check slot B - if it needs rotation, rotate to slot A
 	if needsRotation(slotB) {
-		// Initialize slot A state if it doesn't exist (shouldn't happen but be safe)
+		// Initialize slot A if it doesn't exist (shouldn't happen but be safe)
 		if slotA == nil {
-			slotA = &KeySlotState{
+			slotA = &KeySlot{
 				SlotID:  KeyIDA,
 				Version: -1,
 			}
@@ -365,9 +365,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlotState) 
 // updateActiveKeyCache queries the state store and updates the cached active key and public keys
 // This is called during initialization and periodic rotation checks
 func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
-	slots, err := r.stateStore.ListSlotStates(ctx)
+	slots, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list slot states: %w", err)
+		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
 	if len(slots) == 0 {
@@ -375,12 +375,12 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	}
 
 	now := r.clock.Now()
-	var activeSlot *KeySlotState
+	var activeSlot *KeySlot
 	var publicKeys []service.PublicKey
 
 	// Build list of all non-expired keys and categorize by grace period status
-	var preferredSlots []*KeySlotState // Keys past grace period
-	var fallbackSlots []*KeySlotState  // Keys still in grace period
+	var preferredSlots []*KeySlot // Keys past grace period
+	var fallbackSlots []*KeySlot  // Keys still in grace period
 
 	for _, slot := range slots {
 		// Skip slots without a current key (rotating)
@@ -465,7 +465,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 
 // findNewestSlot returns the slot with the most recent RotationCompletedAt timestamp.
 // This is used to select the active key from slots that are past their grace period.
-func findNewestSlot(slots []*KeySlotState) *KeySlotState {
+func findNewestSlot(slots []*KeySlot) *KeySlot {
 	if len(slots) == 0 {
 		return nil
 	}
@@ -484,7 +484,7 @@ func findNewestSlot(slots []*KeySlotState) *KeySlotState {
 // findOldestSlot returns the slot with the earliest RotationCompletedAt timestamp.
 // This is used to select a fallback key from slots still in their grace period,
 // giving the key the longest time for distribution before becoming active.
-func findOldestSlot(slots []*KeySlotState) *KeySlotState {
+func findOldestSlot(slots []*KeySlot) *KeySlot {
 	if len(slots) == 0 {
 		return nil
 	}

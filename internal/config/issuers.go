@@ -160,8 +160,8 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig) (service.Issuer, error) 
 	// For now, we'll let it live for the application lifetime
 	_ = catalogCloser
 
-	// Initialize key slot state store (in-memory for now)
-	stateStore := keymanager.NewInMemoryKeySlotStateStore()
+	// Initialize key slot store (in-memory for now)
+	slotStore := keymanager.NewInMemoryKeySlotStore()
 
 	// Determine key type and algorithm
 	// TODO: Make this configurable
@@ -171,7 +171,7 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig) (service.Issuer, error) 
 	// Initialize rotating key manager
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		KeyManager: spireKM,
-		StateStore: stateStore,
+		SlotStore:  slotStore,
 		KeyType:    keyType,
 		Algorithm:  algorithm,
 	})
