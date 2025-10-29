@@ -84,7 +84,7 @@ func (repo *ParsecCatalogRepository) GetKeyManager() spirekm.KeyManager {
 //	KeyManager "memory" {
 //	  plugin_data {}
 //	}
-func LoadKeyManagerFromHCL(ctx context.Context, pluginHCL string, log logrus.FieldLogger) (spirekm.KeyManager, io.Closer, error) {
+func LoadKeyManagerFromHCL(ctx context.Context, pluginHCL string, trustDomainStr string, log logrus.FieldLogger) (spirekm.KeyManager, io.Closer, error) {
 	// Parse the HCL configuration
 	var hclConfig struct {
 		Plugins ast.Node `hcl:"plugins"`
@@ -106,8 +106,8 @@ func LoadKeyManagerFromHCL(ctx context.Context, pluginHCL string, log logrus.Fie
 	// Create the repository
 	repo := &ParsecCatalogRepository{}
 
-	// Use a minimal trust domain for the catalog (required but not used by KeyManager)
-	trustDomain, err := spiffeid.TrustDomainFromString("example.org")
+	// Parse the trust domain from the application configuration
+	trustDomain, err := spiffeid.TrustDomainFromString(trustDomainStr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create trust domain: %w", err)
 	}

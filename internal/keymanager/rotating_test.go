@@ -32,7 +32,7 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	}`
 
 		log := testLogger()
-		spireKM, closer, err := LoadKeyManagerFromHCL(ctx, pluginHCL, log)
+		spireKM, closer, err := LoadKeyManagerFromHCL(ctx, pluginHCL, "test.example.org", log)
 		require.NoError(t, err)
 		require.NotNil(t, spireKM)
 		t.Cleanup(func() {

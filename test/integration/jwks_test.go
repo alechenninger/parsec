@@ -39,7 +39,7 @@ func TestJWKSEndpoint(t *testing.T) {
 		plugin_data {}
 	}`
 
-	spireKM, closer, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL, log)
+	spireKM, closer, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL, "test.example.org", log)
 	if err != nil {
 		t.Fatalf("Failed to load key manager: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		plugin_data {}
 	}`
 
-	spireKM1, closer1, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL1, log)
+	spireKM1, closer1, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL1, "test.example.org", log)
 	if err != nil {
 		t.Fatalf("Failed to load key manager 1: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		plugin_data {}
 	}`
 
-	spireKM2, closer2, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL2, log)
+	spireKM2, closer2, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL2, "test.example.org", log)
 	if err != nil {
 		t.Fatalf("Failed to load key manager 2: %v", err)
 	}

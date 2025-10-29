@@ -18,7 +18,7 @@ import (
 )
 
 // NewIssuerRegistry creates an issuer registry from configuration
-func NewIssuerRegistry(cfg []IssuerConfig) (service.Registry, error) {
+func NewIssuerRegistry(cfg []IssuerConfig, trustDomain string) (service.Registry, error) {
 	registry := service.NewSimpleRegistry()
 
 	for _, issuerCfg := range cfg {
@@ -30,7 +30,7 @@ func NewIssuerRegistry(cfg []IssuerConfig) (service.Registry, error) {
 		tokenType := service.TokenType(issuerCfg.TokenType)
 
 		// Create issuer
-		iss, err := newIssuer(issuerCfg)
+		iss, err := newIssuer(issuerCfg, trustDomain)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create issuer for token type %s: %w", issuerCfg.TokenType, err)
 		}
@@ -43,14 +43,14 @@ func NewIssuerRegistry(cfg []IssuerConfig) (service.Registry, error) {
 }
 
 // newIssuer creates an issuer from configuration
-func newIssuer(cfg IssuerConfig) (service.Issuer, error) {
+func newIssuer(cfg IssuerConfig, trustDomain string) (service.Issuer, error) {
 	switch cfg.Type {
 	case "stub":
 		return newStubIssuer(cfg)
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
 	case "transaction_token":
-		return newSigningTransactionTokenIssuer(cfg)
+		return newSigningTransactionTokenIssuer(cfg, trustDomain)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
@@ -104,7 +104,7 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 
 // newSigningTransactionTokenIssuer creates a signing transaction token issuer.
 // This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
-func newSigningTransactionTokenIssuer(cfg IssuerConfig) (service.Issuer, error) {
+func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
 		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}
@@ -152,7 +152,7 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig) (service.Issuer, error) 
 	log := logrus.New()
 	log.SetLevel(logrus.WarnLevel) // Only show warnings/errors for plugins
 
-	spireKM, catalogCloser, err := keymanager.LoadKeyManagerFromHCL(context.Background(), pluginHCL, log)
+	spireKM, catalogCloser, err := keymanager.LoadKeyManagerFromHCL(context.Background(), pluginHCL, trustDomain, log)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load KeyManager plugin: %w", err)
 	}

@@ -64,7 +64,7 @@ func (p *Provider) IssuerRegistry() (service.Registry, error) {
 		return p.issuerRegistry, nil
 	}
 
-	registry, err := NewIssuerRegistry(p.config.Issuers)
+	registry, err := NewIssuerRegistry(p.config.Issuers, p.config.TrustDomain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create issuer registry: %w", err)
 	}

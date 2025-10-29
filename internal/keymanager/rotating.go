@@ -246,10 +246,13 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 	// Filter slots to find slotA and slotB
 	var slotA, slotB *KeySlot
 	for _, slot := range slots {
-		if slot.SlotID == KeyIDA {
+		switch slot.SlotID {
+		case KeyIDA:
 			slotA = slot
-		} else if slot.SlotID == KeyIDB {
+		case KeyIDB:
 			slotB = slot
+		default:
+			return fmt.Errorf("unexpected slot ID: %s", slot.SlotID)
 		}
 	}
 
