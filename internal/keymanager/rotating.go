@@ -193,7 +193,7 @@ func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]service.PublicKe
 
 // ensureInitialKey ensures at least one key exists, generating key-a if needed
 func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
-	slots, err := r.slotStore.ListSlots(ctx)
+	slots, version, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}
@@ -222,9 +222,8 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 		CurrentKeyID:        &keyID,
 		RotationCompletedAt: &rotationCompletedAt,
 		Algorithm:           r.algorithm,
-		Version:             0,
 	}
-	if err := r.slotStore.SaveSlot(ctx, slotA, -1); err != nil {
+	if err := r.slotStore.SaveSlot(ctx, slotA, version); err != nil {
 		return fmt.Errorf("failed to save slot A: %w", err)
 	}
 
@@ -238,15 +237,20 @@ func (r *RotatingKeyManager) generateKeyID(slotID string) string {
 
 // checkAndRotate checks if rotation is needed and performs it
 func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
-	// 1. Read slots
-	slotA, errA := r.slotStore.GetSlot(ctx, KeyIDA)
-	if errA != nil && !errors.Is(errA, ErrSlotNotFound) {
-		return fmt.Errorf("failed to get slot A: %w", errA)
+	// 1. Read all slots and store version
+	slots, storeVersion, err := r.slotStore.ListSlots(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
-	slotB, errB := r.slotStore.GetSlot(ctx, KeyIDB)
-	if errB != nil && !errors.Is(errB, ErrSlotNotFound) {
-		return fmt.Errorf("failed to get slot B: %w", errB)
+	// Filter slots to find slotA and slotB
+	var slotA, slotB *KeySlot
+	for _, slot := range slots {
+		if slot.SlotID == KeyIDA {
+			slotA = slot
+		} else if slot.SlotID == KeyIDB {
+			slotB = slot
+		}
 	}
 
 	// 2. Determine which slot needs rotation and which slot to rotate TO
@@ -267,13 +271,13 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 
 	// 4. Generate key with unique ID in the target slot
 	uniqueKeyID := r.generateKeyID(targetSlot.SlotID)
-	_, err := r.keyManager.GenerateKey(ctx, uniqueKeyID, r.keyType)
+	_, err = r.keyManager.GenerateKey(ctx, uniqueKeyID, r.keyType)
 	if err != nil {
 		return fmt.Errorf("failed to generate key: %w", err)
 	}
 
 	// 5. Try to bind this key to the target slot
-	err = r.bindKeyToSlot(ctx, targetSlot, uniqueKeyID, r.algorithm)
+	err = r.bindKeyToSlot(ctx, targetSlot, uniqueKeyID, r.algorithm, storeVersion)
 	if errors.Is(err, ErrVersionMismatch) {
 		// Another process won the race, that's ok
 		log.Printf("Another process bound a key to slot %s, skipping", targetSlot.SlotID)
@@ -289,7 +293,7 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 }
 
 // bindKeyToSlot binds a generated key to a slot
-func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlot, keyID string, algorithm string) error {
+func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlot, keyID string, algorithm string, storeVersion StoreVersion) error {
 	now := r.clock.Now()
 	newSlot := &KeySlot{
 		SlotID:              slot.SlotID,
@@ -297,9 +301,8 @@ func (r *RotatingKeyManager) bindKeyToSlot(ctx context.Context, slot *KeySlot, k
 		PreviousKeyID:       slot.CurrentKeyID, // Keep reference to previous key
 		RotationCompletedAt: &now,              // Mark when bound for grace period
 		Algorithm:           algorithm,         // Use provided algorithm for the slot
-		Version:             slot.Version,
 	}
-	return r.slotStore.SaveSlot(ctx, newSlot, slot.Version)
+	return r.slotStore.SaveSlot(ctx, newSlot, storeVersion)
 }
 
 // selectSlotsForRotation determines which slot needs rotation and which slot to rotate to
@@ -340,8 +343,7 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot B if it doesn't exist
 		if slotB == nil {
 			slotB = &KeySlot{
-				SlotID:  KeyIDB,
-				Version: -1, // Will create new
+				SlotID: KeyIDB,
 			}
 		}
 		return slotA, slotB
@@ -352,8 +354,7 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot A if it doesn't exist (shouldn't happen but be safe)
 		if slotA == nil {
 			slotA = &KeySlot{
-				SlotID:  KeyIDA,
-				Version: -1,
+				SlotID: KeyIDA,
 			}
 		}
 		return slotB, slotA
@@ -365,7 +366,7 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 // updateActiveKeyCache queries the state store and updates the cached active key and public keys
 // This is called during initialization and periodic rotation checks
 func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
-	slots, err := r.slotStore.ListSlots(ctx)
+	slots, _, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}

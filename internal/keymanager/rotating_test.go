@@ -100,9 +100,18 @@ func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
 	// Check that the initial key's RotationCompletedAt is set to the current clock time
 	// (not backdated to circumvent grace period)
 	slotStore := rm.slotStore
-	slotA, err := slotStore.GetSlot(ctx, KeyIDA)
+	slots, _, err := slotStore.ListSlots(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, slotA)
+	require.Len(t, slots, 1, "should have 1 slot")
+
+	var slotA *KeySlot
+	for _, s := range slots {
+		if s.SlotID == KeyIDA {
+			slotA = s
+			break
+		}
+	}
+	require.NotNil(t, slotA, "slot A should exist")
 	require.NotNil(t, slotA.RotationCompletedAt, "initial key should have RotationCompletedAt set")
 
 	assert.Equal(t, startTime, *slotA.RotationCompletedAt,
@@ -368,28 +377,45 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	// Get the slot store
 	slotStore := rm.slotStore
 
-	// Trigger a rotation (creates key in slot B)
-	clk.Advance(23 * time.Minute)
-
-	// Verify slotB was created with version 0
-	slotB, err := slotStore.GetSlot(ctx, KeyIDB)
+	// Get initial state and version
+	slots, version1, err := slotStore.ListSlots(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, slotB)
-	assert.Equal(t, int64(0), slotB.Version, "new slot should start at version 0")
+	require.Len(t, slots, 1, "should have 1 slot")
+	require.NotEqual(t, "", version1, "version should not be empty")
 
-	// Test optimistic locking: try to update with wrong version
-	slotB.Algorithm = "RS512"                 // Modify something
-	err = slotStore.SaveSlot(ctx, slotB, 999) // Wrong version
-	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with wrong version")
+	// Find slotA
+	var slotA *KeySlot
+	for _, s := range slots {
+		if s.SlotID == KeyIDA {
+			slotA = s
+			break
+		}
+	}
+	require.NotNil(t, slotA)
 
-	// Update with correct version should succeed
-	err = slotStore.SaveSlot(ctx, slotB, slotB.Version)
+	// Test optimistic locking: Save with correct version should succeed
+	slotA.Algorithm = "RS512" // Modify something
+	err = slotStore.SaveSlot(ctx, slotA, version1)
 	require.NoError(t, err, "should succeed with correct version")
 
-	// Verify version incremented
-	slotB2, err := slotStore.GetSlot(ctx, KeyIDB)
+	// Get new version after save
+	_, version2, err := slotStore.ListSlots(ctx)
 	require.NoError(t, err)
-	assert.Greater(t, slotB2.Version, slotB.Version, "version should increment after update")
+	assert.NotEqual(t, version1, version2, "version should change after save")
+
+	// Try to save with old version - should fail
+	slotA.Algorithm = "ES384"
+	err = slotStore.SaveSlot(ctx, slotA, version1) // Old version
+	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with old version")
+
+	// Save with correct (current) version should succeed
+	err = slotStore.SaveSlot(ctx, slotA, version2)
+	require.NoError(t, err, "should succeed with current version")
+
+	// Verify version incremented again
+	_, version3, err := slotStore.ListSlots(ctx)
+	require.NoError(t, err)
+	assert.NotEqual(t, version2, version3, "version should change after second save")
 }
 
 func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
@@ -518,7 +544,7 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 	require.NoError(t, err)
 	defer rm2.Stop()
 
-	slots, err := slotStore.ListSlots(ctx)
+	slots, _, err := slotStore.ListSlots(ctx)
 	require.NoError(t, err)
 	require.Len(t, slots, 1)
 	assert.Equal(t, startTime, *slots[0].RotationCompletedAt)

@@ -217,19 +217,32 @@ The rotation follows this pattern:
 
 ### Key Slot Store
 
-The `KeySlotStore` interface provides persistent storage for key slots with optimistic locking:
+The `KeySlotStore` interface provides persistent storage for key slots with store-level optimistic locking:
 
 ```go
+type StoreVersion string
+
 type KeySlotStore interface {
-	GetSlot(ctx context.Context, slotID string) (*KeySlot, error)
-	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion int64) error
-	ListSlots(ctx context.Context) ([]*KeySlot, error)
+	// ListSlots returns all slots and the current store version
+	ListSlots(ctx context.Context) ([]*KeySlot, StoreVersion, error)
+	
+	// SaveSlot saves a slot atomically, returning error if version mismatch
+	// expectedVersion is used for optimistic locking (empty string means create new)
+	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion StoreVersion) error
 }
 ```
 
-**In-memory implementation**: `InMemoryKeySlotStore` provides a thread-safe in-memory implementation suitable for development and testing.
+**Store-level versioning**: The version is tracked at the store level, not per-slot. This ensures that modifications to any slot are detected, which is important since the rotation logic depends on the state of all slots. Callers should:
+1. Call `ListSlots` to get all slots and the current store version
+2. Make decisions based on the full state
+3. Call `SaveSlot` with the store version from step 1
+4. If another process modified any slot in the meantime, `SaveSlot` will return `ErrVersionMismatch`
 
-**Production use**: For production deployments with multiple instances, implement a persistent `KeySlotStore` backed by a database or distributed storage.
+**Creating new slots**: Pass an empty string `""` as the `expectedVersion` to create a new slot without version checking.
+
+**In-memory implementation**: `InMemoryKeySlotStore` provides a thread-safe in-memory implementation suitable for development and testing. It uses a simple integer counter converted to a string as the store version.
+
+**Production use**: For production deployments with multiple instances, implement a persistent `KeySlotStore` backed by a database or distributed storage. The `StoreVersion` type is opaque, allowing implementations to use timestamps, UUIDs, or other versioning schemes.
 
 ## BaseAdapter
 
