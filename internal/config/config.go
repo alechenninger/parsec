@@ -195,13 +195,9 @@ type IssuerConfig struct {
 	IssuerURL string `koanf:"issuer_url"`
 	TTL       string `koanf:"ttl"` // Duration string like "5m"
 
-	// KeyManager plugin configuration (HCL format)
-	// Used for transaction tokens to configure the Spire KeyManager plugin
-	// Example:
-	//   KeyManager "memory" {
-	//     plugin_data {}
-	//   }
-	KeyManagerPlugin string `koanf:"key_manager_plugin"`
+	// KeyManager configuration
+	// Used for transaction tokens to configure the key manager
+	KeyManager *KeyManagerConfig `koanf:"key_manager"`
 
 	// Transaction token issuer fields (stub, transaction_token types)
 	// These mappers build the "tctx" and "req_ctx" claims
@@ -214,6 +210,17 @@ type IssuerConfig struct {
 
 	// Stub issuer fields (deprecated - use mappers instead)
 	IncludeRequestContext bool `koanf:"include_request_context"`
+}
+
+// KeyManagerConfig configures a key manager
+type KeyManagerConfig struct {
+	// Type selects the key manager implementation
+	// Options: "memory", "aws_kms"
+	Type string `koanf:"type"`
+
+	// AWS KMS fields
+	Region      string `koanf:"region"`       // AWS region (e.g., "us-east-1")
+	AliasPrefix string `koanf:"alias_prefix"` // KMS alias prefix (e.g., "alias/parsec/")
 }
 
 // ClaimsFilterConfig configures the claims filter registry

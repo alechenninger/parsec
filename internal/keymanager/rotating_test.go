@@ -3,44 +3,20 @@ package keymanager
 import (
 	"context"
 	"crypto"
-	"io"
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alechenninger/parsec/internal/clock"
-	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
 )
 
-// testLogger creates a logger for tests that discards output
-func testLogger() logrus.FieldLogger {
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-	return log
-}
-
 // Helper to create a test RotatingKeyManager with a fake clock and in memory storage
-func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager spirekm.KeyManager) (*RotatingKeyManager, spirekm.KeyManager) {
+func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyManager) (*RotatingKeyManager, KeyManager) {
 	if keyManager == nil {
-		// Load an in-memory Spire KeyManager via catalog
-		ctx := context.Background()
-		pluginHCL := `KeyManager "memory" {
-		plugin_data {}
-	}`
-
-		log := testLogger()
-		spireKM, closer, err := LoadKeyManagerFromHCL(ctx, pluginHCL, "test.example.org", log)
-		require.NoError(t, err)
-		require.NotNil(t, spireKM)
-		t.Cleanup(func() {
-			if closer != nil {
-				closer.Close()
-			}
-		})
-		keyManager = spireKM
+		// Create an in-memory KeyManager
+		keyManager = NewInMemoryKeyManager()
 	}
 
 	// Create in-memory slot store if needed
@@ -52,7 +28,7 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
 		KeyManager: keyManager,
 		SlotStore:  slotStore,
-		KeyType:    spirekm.ECP256,
+		KeyType:    KeyTypeECP256,
 		Algorithm:  "ES256",
 		Clock:      clk,
 		// Short timings for faster tests
@@ -60,6 +36,7 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 		RotationThreshold: 8 * time.Minute,  // Rotate when 8m remaining
 		GracePeriod:       2 * time.Minute,
 		CheckInterval:     10 * time.Second,
+		PrepareTimeout:    1 * time.Minute,
 	})
 
 	return rm, keyManager
@@ -290,9 +267,13 @@ func TestRotatingKeyManager_SigningWorks(t *testing.T) {
 	signer, keyID, algorithm, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
 
-	// Sign some data
+	// Sign some data (must hash first for ECDSA)
 	data := []byte("test message")
-	signature, err := signer.Sign(nil, data, crypto.SHA256)
+	hash := crypto.SHA256.New()
+	hash.Write(data)
+	hashed := hash.Sum(nil)
+
+	signature, err := signer.Sign(nil, hashed, crypto.SHA256)
 	require.NoError(t, err)
 	assert.NotEmpty(t, signature)
 
@@ -343,21 +324,21 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 		keyIDs = append(keyIDs, string(keyID))
 	}
 
-	// Should have 4 unique key IDs
+	// Should have 4 key IDs
 	assert.Len(t, keyIDs, 4)
 
-	// Each should be unique
+	// Each key ID should be unique
 	seen := make(map[string]bool)
 	for _, id := range keyIDs {
-		assert.False(t, seen[id], "key IDs should be unique")
+		assert.False(t, seen[id], "key IDs should be unique, got duplicate: %s", id)
 		seen[id] = true
 	}
 
-	// Should alternate between key-a and key-b slots
-	assert.Contains(t, keyIDs[0], "key-a")
-	assert.Contains(t, keyIDs[1], "key-b")
-	assert.Contains(t, keyIDs[2], "key-a")
-	assert.Contains(t, keyIDs[3], "key-b")
+	// Should alternate between key-a and key-b slot prefixes
+	assert.Contains(t, keyIDs[0], "key-a", "first key should be from slot A")
+	assert.Contains(t, keyIDs[1], "key-b", "second key should be from slot B")
+	assert.Contains(t, keyIDs[2], "key-a", "third key should be from slot A")
+	assert.Contains(t, keyIDs[3], "key-b", "fourth key should be from slot B")
 }
 
 func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
@@ -395,32 +376,24 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 
 	// Test optimistic locking: Save with correct version should succeed
 	slotA.Algorithm = "RS512" // Modify something
-	err = slotStore.SaveSlot(ctx, slotA, version1)
+	version2, err := slotStore.SaveSlot(ctx, slotA, version1)
 	require.NoError(t, err, "should succeed with correct version")
-
-	// Get new version after save
-	_, version2, err := slotStore.ListSlots(ctx)
-	require.NoError(t, err)
 	assert.NotEqual(t, version1, version2, "version should change after save")
 
 	// Try to save with old version - should fail
 	slotA.Algorithm = "ES384"
-	err = slotStore.SaveSlot(ctx, slotA, version1) // Old version
+	_, err = slotStore.SaveSlot(ctx, slotA, version1) // Old version
 	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with old version")
 
 	// Save with correct (current) version should succeed
-	err = slotStore.SaveSlot(ctx, slotA, version2)
+	version3, err := slotStore.SaveSlot(ctx, slotA, version2)
 	require.NoError(t, err, "should succeed with current version")
-
-	// Verify version incremented again
-	_, version3, err := slotStore.ListSlots(ctx)
-	require.NoError(t, err)
 	assert.NotEqual(t, version2, version3, "version should change after second save")
 }
 
 func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, spireKM := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, km := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -437,11 +410,11 @@ func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	assert.Len(t, publicKeys1, 1)
 
 	// Verify the public key matches what's in the KeyManager
-	keyID := publicKeys1[0].KeyID
-	key, err := spireKM.GetKey(ctx, keyID)
+	// Use slot ID "key-a" since that's what we use now
+	key, err := km.GetKey(ctx, KeyIDA)
 	require.NoError(t, err)
 
-	assert.Equal(t, key.Public(), publicKeys1[0].Key)
+	assert.Equal(t, key.Signer.Public(), publicKeys1[0].Key)
 
 	// Call PublicKeys again - should return cached data (same pointer)
 	publicKeys2, err := rm.PublicKeys(ctx)

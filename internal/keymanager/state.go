@@ -16,13 +16,11 @@ var (
 // StoreVersion is an opaque version identifier for the key slot store
 type StoreVersion string
 
-// KeySlot represents a key slot with its current and previous keys
+// KeySlot represents a key slot with its current key
 type KeySlot struct {
-	SlotID              string     // "key-a" or "key-b"
-	CurrentKeyID        *string    // Currently active key ID (nil when rotating)
-	PreviousKeyID       *string    // Previous key ID (for cleanup tracking)
-	RotationStartedAt   *time.Time // When rotation was initiated
-	RotationCompletedAt *time.Time // When new key was bound (for grace period)
+	SlotID              string     // "key-a" or "key-b" (also used as slotID for KeyManager)
+	PreparingAt         *time.Time // When "preparing" state started (nil = not preparing)
+	RotationCompletedAt *time.Time // When rotation completed (for grace period)
 	Algorithm           string     // JWT algorithm (e.g., "ES256")
 }
 
@@ -31,9 +29,9 @@ type KeySlotStore interface {
 	// ListSlots returns all slots and the current store version
 	ListSlots(ctx context.Context) ([]*KeySlot, StoreVersion, error)
 
-	// SaveSlot saves a slot atomically, returning error if version mismatch
+	// SaveSlot saves a slot atomically, returning the new version or error if version mismatch
 	// expectedVersion is used for optimistic locking (empty string means create new)
-	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion StoreVersion) error
+	SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion StoreVersion) (StoreVersion, error)
 }
 
 // InMemoryKeySlotStore is an in-memory implementation of KeySlotStore
@@ -52,14 +50,14 @@ func NewInMemoryKeySlotStore() *InMemoryKeySlotStore {
 }
 
 // SaveSlot saves a slot atomically with optimistic locking
-func (s *InMemoryKeySlotStore) SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion StoreVersion) error {
+func (s *InMemoryKeySlotStore) SaveSlot(ctx context.Context, slot *KeySlot, expectedVersion StoreVersion) (StoreVersion, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	currentVersion := StoreVersion(strconv.Itoa(s.version))
 
 	if expectedVersion != currentVersion {
-		return ErrVersionMismatch
+		return "", ErrVersionMismatch
 	}
 
 	// Save a deep copy and increment store version
@@ -67,7 +65,8 @@ func (s *InMemoryKeySlotStore) SaveSlot(ctx context.Context, slot *KeySlot, expe
 	s.slots[slot.SlotID] = slotCopy
 	s.version++
 
-	return nil
+	newVersion := StoreVersion(strconv.Itoa(s.version))
+	return newVersion, nil
 }
 
 // ListSlots returns all slots and the current store version
@@ -91,19 +90,9 @@ func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 		Algorithm: slot.Algorithm,
 	}
 
-	if slot.CurrentKeyID != nil {
-		keyID := *slot.CurrentKeyID
-		copy.CurrentKeyID = &keyID
-	}
-
-	if slot.PreviousKeyID != nil {
-		keyID := *slot.PreviousKeyID
-		copy.PreviousKeyID = &keyID
-	}
-
-	if slot.RotationStartedAt != nil {
-		t := *slot.RotationStartedAt
-		copy.RotationStartedAt = &t
+	if slot.PreparingAt != nil {
+		t := *slot.PreparingAt
+		copy.PreparingAt = &t
 	}
 
 	if slot.RotationCompletedAt != nil {

@@ -7,9 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
-
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/keymanager"
@@ -139,41 +136,41 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string) (ser
 		reqMappers = append(reqMappers, m)
 	}
 
-	// Load KeyManager using Spire's catalog system
-	pluginHCL := cfg.KeyManagerPlugin
-	if pluginHCL == "" {
-		// Default to memory KeyManager if not specified
-		pluginHCL = `KeyManager "memory" {
-			plugin_data {}
-		}`
+	// Create KeyManager from config
+	var km keymanager.KeyManager
+	
+	if cfg.KeyManager == nil || cfg.KeyManager.Type == "" || cfg.KeyManager.Type == "memory" {
+		// Default to in-memory key manager
+		km = keymanager.NewInMemoryKeyManager()
+	} else if cfg.KeyManager.Type == "aws_kms" {
+		// Create AWS KMS key manager
+		awsKM, err := keymanager.NewAWSKMSKeyManager(context.Background(), keymanager.AWSKMSConfig{
+			Region:      cfg.KeyManager.Region,
+			AliasPrefix: cfg.KeyManager.AliasPrefix,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create AWS KMS key manager: %w", err)
+		}
+		km = awsKM
+	} else {
+		return nil, fmt.Errorf("unknown key_manager type: %s (supported: memory, aws_kms)", cfg.KeyManager.Type)
 	}
-
-	// TODO: Make logger configurable
-	log := logrus.New()
-	log.SetLevel(logrus.WarnLevel) // Only show warnings/errors for plugins
-
-	spireKM, catalogCloser, err := keymanager.LoadKeyManagerFromHCL(context.Background(), pluginHCL, trustDomain, log)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load KeyManager plugin: %w", err)
-	}
-	// Note: catalogCloser should be closed when the application shuts down
-	// For now, we'll let it live for the application lifetime
-	_ = catalogCloser
 
 	// Initialize key slot store (in-memory for now)
 	slotStore := keymanager.NewInMemoryKeySlotStore()
 
 	// Determine key type and algorithm
 	// TODO: Make this configurable
-	keyType := spirekm.ECP256
+	keyType := keymanager.KeyTypeECP256
 	algorithm := "ES256" // JWT signing algorithm
 
 	// Initialize rotating key manager
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
-		KeyManager: spireKM,
-		SlotStore:  slotStore,
-		KeyType:    keyType,
-		Algorithm:  algorithm,
+		KeyManager:     km,
+		SlotStore:      slotStore,
+		KeyType:        keyType,
+		Algorithm:      algorithm,
+		PrepareTimeout: 1 * time.Minute,
 	})
 
 	// Start the rotating key manager

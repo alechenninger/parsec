@@ -8,9 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	spirekm "github.com/spiffe/spire/pkg/server/plugin/keymanager"
-
 	"github.com/alechenninger/parsec/internal/issuer"
 	"github.com/alechenninger/parsec/internal/keymanager"
 	"github.com/alechenninger/parsec/internal/server"
@@ -31,27 +28,13 @@ func TestJWKSEndpoint(t *testing.T) {
 	dataSourceRegistry := service.NewDataSourceRegistry()
 	issuerRegistry := service.NewSimpleRegistry()
 
-	// Create a signing transaction token issuer with a real key
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-
-	pluginHCL := `KeyManager "memory" {
-		plugin_data {}
-	}`
-
-	spireKM, closer, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL, "test.example.org", log)
-	if err != nil {
-		t.Fatalf("Failed to load key manager: %v", err)
-	}
-	if closer != nil {
-		defer closer.Close()
-	}
-
+	// Create a signing transaction token issuer with an in-memory key manager
+	km := keymanager.NewInMemoryKeyManager()
 	slotStore := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
-		KeyManager: spireKM,
+		KeyManager: km,
 		SlotStore:  slotStore,
-		KeyType:    spirekm.ECP256,
+		KeyType:    keymanager.KeyTypeECP256,
 		Algorithm:  "ES256",
 	})
 
@@ -197,27 +180,13 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	dataSourceRegistry := service.NewDataSourceRegistry()
 	issuerRegistry := service.NewSimpleRegistry()
 
-	// Create first issuer (transaction token with signing)
-	log := logrus.New()
-	log.SetOutput(io.Discard)
-
-	pluginHCL1 := `KeyManager "memory" {
-		plugin_data {}
-	}`
-
-	spireKM1, closer1, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL1, "test.example.org", log)
-	if err != nil {
-		t.Fatalf("Failed to load key manager 1: %v", err)
-	}
-	if closer1 != nil {
-		defer closer1.Close()
-	}
-
+	// Create first issuer (transaction token with ECP256)
+	km1 := keymanager.NewInMemoryKeyManager()
 	slotStore1 := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM1 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
-		KeyManager: spireKM1,
+		KeyManager: km1,
 		SlotStore:  slotStore1,
-		KeyType:    spirekm.ECP256,
+		KeyType:    keymanager.KeyTypeECP256,
 		Algorithm:  "ES256",
 	})
 
@@ -235,24 +204,13 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
-	// Create second issuer (access token with different key)
-	pluginHCL2 := `KeyManager "memory" {
-		plugin_data {}
-	}`
-
-	spireKM2, closer2, err := keymanager.LoadKeyManagerFromHCL(ctx, pluginHCL2, "test.example.org", log)
-	if err != nil {
-		t.Fatalf("Failed to load key manager 2: %v", err)
-	}
-	if closer2 != nil {
-		defer closer2.Close()
-	}
-
+	// Create second issuer (access token with ECP384)
+	km2 := keymanager.NewInMemoryKeyManager()
 	slotStore2 := keymanager.NewInMemoryKeySlotStore()
 	rotatingKM2 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
-		KeyManager: spireKM2,
+		KeyManager: km2,
 		SlotStore:  slotStore2,
-		KeyType:    spirekm.ECP384,
+		KeyType:    keymanager.KeyTypeECP384,
 		Algorithm:  "ES384",
 	})
 
