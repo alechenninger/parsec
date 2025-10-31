@@ -16,10 +16,6 @@ type KeyManager interface {
 	// Returns a Key with Key.ID being a unique identifier (used as kid in JWTs).
 	CreateKey(ctx context.Context, slotID string, keyType KeyType) (*Key, error)
 
-	// GetPublicKeys returns all public keys that are currently valid (not scheduled for deletion).
-	// The PublicKey.ID values are used as kids in JWKS.
-	GetPublicKeys(ctx context.Context) ([]*PublicKey, error)
-
 	// GetKey retrieves the current key for a specific slotID for signing operations.
 	GetKey(ctx context.Context, slotID string) (*Key, error)
 }

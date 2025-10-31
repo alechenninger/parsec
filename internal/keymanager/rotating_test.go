@@ -327,18 +327,11 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	// Should have 4 key IDs
 	assert.Len(t, keyIDs, 4)
 
-	// Each key ID should be unique
-	seen := make(map[string]bool)
-	for _, id := range keyIDs {
-		assert.False(t, seen[id], "key IDs should be unique, got duplicate: %s", id)
-		seen[id] = true
-	}
-
-	// Should alternate between key-a and key-b slot prefixes
-	assert.Contains(t, keyIDs[0], "key-a", "first key should be from slot A")
-	assert.Contains(t, keyIDs[1], "key-b", "second key should be from slot B")
-	assert.Contains(t, keyIDs[2], "key-a", "third key should be from slot A")
-	assert.Contains(t, keyIDs[3], "key-b", "fourth key should be from slot B")
+	// Verify they are unique
+	assert.Equal(t, "key-a-1", keyIDs[0], "first key should be key-a-1")
+	assert.Equal(t, "key-b-2", keyIDs[1], "second key should be key-b-2")
+	assert.Equal(t, "key-a-3", keyIDs[2], "third key should be key-a-3")
+	assert.Equal(t, "key-b-4", keyIDs[3], "fourth key should be key-b-4")
 }
 
 func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {

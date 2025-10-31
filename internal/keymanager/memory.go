@@ -95,23 +95,6 @@ func (m *InMemoryKeyManager) CreateKey(ctx context.Context, slotID string, keyTy
 	return key, nil
 }
 
-// GetPublicKeys returns all current public keys (not scheduled for deletion)
-func (m *InMemoryKeyManager) GetPublicKeys(ctx context.Context) ([]*PublicKey, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	publicKeys := make([]*PublicKey, 0, len(m.keys))
-	for _, key := range m.keys {
-		publicKeys = append(publicKeys, &PublicKey{
-			ID:        key.ID,
-			Algorithm: key.Algorithm,
-			PublicKey: key.Signer.Public(),
-		})
-	}
-
-	return publicKeys, nil
-}
-
 // GetKey retrieves a key by its slotID for signing operations
 func (m *InMemoryKeyManager) GetKey(ctx context.Context, slotID string) (*Key, error) {
 	m.mu.RLock()
