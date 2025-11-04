@@ -5,6 +5,7 @@
 # - Lua data sources with caching
 # - CEL-based claim mapping
 # - Multiple validators
+# - Top-level fixtures for hermetic testing
 
 server:
   grpc_port: 9090
@@ -15,6 +16,30 @@ trust_domain: "parsec.example.com"
 exchange_server:
   claims_filter:
     type: stub
+
+# Top-level fixtures for hermetic testing (optional)
+# These fixtures apply globally to all HTTP clients (validators, datasources, etc.)
+# fixtures:
+#   - type: http_rule
+#     request:
+#       method: GET
+#       url: "https://api.example.com/users/.*"
+#       url_type: pattern
+#     response:
+#       status: 200
+#       headers:
+#         Content-Type: application/json
+#       body: '{"user_id": "test_user", "roles": ["admin"]}'
+#   - type: http_rule
+#     request:
+#       method: GET
+#       url: "https://idp.example.com/.well-known/jwks.json"
+#       url_type: exact
+#     response:
+#       status: 200
+#       headers:
+#         Content-Type: application/json
+#       body: '{"keys": []}'
 
 # Filtered trust store with multiple validators and CEL-based filtering
 trust_store:
@@ -106,16 +131,6 @@ data_sources:
     http:
       timeout: 5s
   
-  # Example with HTTP fixtures for testing (no real HTTP calls)
-  # - name: user_permissions_test
-  #   type: lua
-  #   script_file: ./scripts/user_permissions.lua
-  #   http:
-  #     timeout: 10s
-  #     fixtures_file: ./test/fixtures/user_api.yaml
-  #   caching:
-  #     type: in_memory
-  #     ttl: 5m
 
 # Token issuers
 issuers:

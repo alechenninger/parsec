@@ -30,6 +30,11 @@ import (
 // - Treats all internals as a black box
 // - Tests the API contract: credentials + request → response
 // - Uses fixtures for all I/O (JWKS, HTTP APIs, time)
+//
+// Note: This test manually constructs fixtures via the Go API. For config-driven
+// hermetic testing using top-level fixtures, see configs/examples/parsec-hermetic.yaml
+// which demonstrates HTTP rule fixtures that can be loaded from configuration.
+// JWKS and clock fixtures will be added to the config schema in the future.
 func TestHermeticTokenExchange(t *testing.T) {
 	// ============================================================
 	// 1. Setup Fixtures (All I/O Control)

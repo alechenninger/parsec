@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/alechenninger/parsec/internal/httpfixture"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
@@ -19,6 +20,8 @@ type Provider struct {
 	issuerRegistry       service.Registry
 	claimsFilterRegistry server.ClaimsFilterRegistry
 	tokenService         *service.TokenService
+	httpFixtureProvider  httpfixture.FixtureProvider
+	httpFixtureBuilt     bool
 }
 
 // NewProvider creates a new provider from configuration
@@ -34,7 +37,8 @@ func (p *Provider) TrustStore() (trust.Store, error) {
 		return p.trustStore, nil
 	}
 
-	store, err := NewTrustStore(p.config.TrustStore)
+	httpProvider := p.HTTPFixtureProvider()
+	store, err := NewTrustStore(p.config.TrustStore, httpProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trust store: %w", err)
 	}
@@ -49,7 +53,8 @@ func (p *Provider) DataSourceRegistry() (*service.DataSourceRegistry, error) {
 		return p.dataSourceRegistry, nil
 	}
 
-	registry, err := NewDataSourceRegistry(p.config.DataSources)
+	httpProvider := p.HTTPFixtureProvider()
+	registry, err := NewDataSourceRegistry(p.config.DataSources, httpProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data source registry: %w", err)
 	}
@@ -133,6 +138,18 @@ func (p *Provider) ServerConfig() server.Config {
 // TrustDomain returns the configured trust domain
 func (p *Provider) TrustDomain() string {
 	return p.config.TrustDomain
+}
+
+// HTTPFixtureProvider returns the HTTP fixture provider for hermetic testing
+// Returns nil if no fixtures are configured (normal production mode)
+func (p *Provider) HTTPFixtureProvider() httpfixture.FixtureProvider {
+	if p.httpFixtureBuilt {
+		return p.httpFixtureProvider
+	}
+
+	p.httpFixtureProvider = BuildHTTPFixtureProvider(p.config.Fixtures)
+	p.httpFixtureBuilt = true
+	return p.httpFixtureProvider
 }
 
 // AuthzServerTokenTypes returns the configured token types for ext_authz

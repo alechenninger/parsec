@@ -1,0 +1,169 @@
+# parsec Configuration - Hermetic Testing Example
+#
+# This configuration demonstrates hermetic testing with fixtures
+# All external dependencies (HTTP calls to validators and datasources) are stubbed with fixtures
+
+server:
+  grpc_port: 9090
+  http_port: 8080
+
+trust_domain: "parsec.example.com"
+
+exchange_server:
+  claims_filter:
+    type: stub
+
+# Top-level fixtures for hermetic testing
+# These fixtures replace all real HTTP calls with canned responses
+fixtures:
+  # JWKS endpoint fixture for actor JWT validator
+  - type: http_rule
+    request:
+      method: GET
+      url: "https://auth.internal.example.com/.well-known/jwks.json"
+      url_type: exact
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "keys": [
+            {
+              "kty": "RSA",
+              "use": "sig",
+              "kid": "test-key-1",
+              "n": "xGOr-H7A...",
+              "e": "AQAB"
+            }
+          ]
+        }
+
+  # JWKS endpoint fixture for subject JWT validator
+  - type: http_rule
+    request:
+      method: GET
+      url: "https://idp.customer.example.com/.well-known/jwks.json"
+      url_type: exact
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "keys": [
+            {
+              "kty": "RSA",
+              "use": "sig",
+              "kid": "customer-key-1",
+              "n": "yH1s-K8B...",
+              "e": "AQAB"
+            }
+          ]
+        }
+
+  # User API fixture (pattern matching for any user ID)
+  - type: http_rule
+    request:
+      method: GET
+      url: "https://api.prod.example.com/users/.*"
+      url_type: pattern
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "user_id": "alice",
+          "email": "alice@customer.example.com",
+          "roles": ["developer", "admin"],
+          "department": "engineering"
+        }
+
+  # Permissions API fixture
+  - type: http_rule
+    request:
+      method: GET
+      url: "https://api.prod.example.com/permissions/.*"
+      url_type: pattern
+    response:
+      status: 200
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "permissions": ["read:data", "write:data", "admin:users"]
+        }
+
+# Trust store with JWT validators for hermetic testing
+trust_store:
+  type: stub_store
+  validators:
+    # Actor validator (internal service IdP)
+    - type: jwt_validator
+      issuer: "https://auth.internal.example.com"
+      jwks_url: "https://auth.internal.example.com/.well-known/jwks.json"
+      trust_domain: "internal.example.com"
+      refresh_interval: "15m"
+    
+    # Subject validator (customer IdP)
+    - type: jwt_validator
+      issuer: "https://idp.customer.example.com"
+      jwks_url: "https://idp.customer.example.com/.well-known/jwks.json"
+      trust_domain: "customer.example.com"
+      refresh_interval: "15m"
+
+# Data sources that use HTTP fixtures
+data_sources:
+  # User profile data source
+  - name: user_profile
+    type: lua
+    script: |
+      function fetch(input)
+          local user_id = input.subject.subject
+          local response = http.get("https://api.prod.example.com/users/" .. user_id)
+          if response.status == 200 then
+              return {data = response.body, content_type = "application/json"}
+          end
+          return nil
+      end
+    http:
+      timeout: 30s
+
+  # User permissions data source
+  - name: user_permissions
+    type: lua
+    script: |
+      function fetch(input)
+          local user_id = input.subject.subject
+          local response = http.get("https://api.prod.example.com/permissions/" .. user_id)
+          if response.status == 200 then
+              return {data = response.body, content_type = "application/json"}
+          end
+          return nil
+      end
+    http:
+      timeout: 30s
+
+# Token issuers
+issuers:
+  # Transaction token issuer (unsigned for testing)
+  - token_type: "urn:ietf:params:oauth:token-type:txn_token"
+    type: unsigned
+    issuer_url: "https://parsec.example.com"
+    ttl: 5m
+    claim_mappers:
+      # Include subject claims
+      - type: passthrough
+      
+      # Add enriched data from datasources
+      - type: cel
+        script: |
+          {
+            "user_profile": datasource("user_profile"),
+            "permissions": datasource("user_permissions"),
+            "request_path": has(request.path) ? request.path : null,
+            "request_method": has(request.method) ? request.method : null
+          }
+
+
