@@ -23,6 +23,9 @@ type Config struct {
 
 	// Issuers configuration for different token types
 	Issuers []IssuerConfig `koanf:"issuers"`
+
+	// Fixtures for hermetic testing (HTTP rules, etc.)
+	Fixtures []FixtureConfig `koanf:"fixtures"`
 }
 
 // ServerConfig contains network-level server settings
@@ -139,12 +142,6 @@ type DataSourceConfig struct {
 type HTTPConfig struct {
 	// Timeout for HTTP requests (default: 30s)
 	Timeout string `koanf:"timeout"` // Duration string like "30s"
-
-	// FixturesFile path to load HTTP fixtures from (for testing)
-	FixturesFile string `koanf:"fixtures_file"`
-
-	// FixturesDir path to load HTTP fixtures from directory (for testing)
-	FixturesDir string `koanf:"fixtures_dir"`
 }
 
 // CachingConfig configures caching for a data source
@@ -237,4 +234,49 @@ type ClaimsFilterConfig struct {
 
 	// Per-actor rules
 	ActorRules map[string][]string `koanf:"actor_rules"` // Map of actor pattern to allowed claims
+}
+
+// FixtureConfig configures a fixture for hermetic testing
+type FixtureConfig struct {
+	// Type selects the fixture type
+	// Options: "http_rule", "jwks"
+	Type string `koanf:"type"`
+
+	// HTTP rule fields (when Type is "http_rule")
+	Request  FixtureRequest  `koanf:"request"`
+	Response FixtureResponse `koanf:"response"`
+
+	// JWKS fields (when Type is "jwks")
+	Issuer    string `koanf:"issuer"`    // Issuer URL (iss claim)
+	JWKSURL   string `koanf:"jwks_url"`  // URL where JWKS will be served
+	KeyID     string `koanf:"key_id"`    // Optional key identifier (defaults to "test-key-1")
+	Algorithm string `koanf:"algorithm"` // Optional algorithm (defaults to "RS256")
+}
+
+// FixtureRequest defines request matching criteria for HTTP fixtures
+type FixtureRequest struct {
+	// Method is the HTTP method to match (e.g., "GET", "POST", "*" for any)
+	Method string `koanf:"method"`
+
+	// URL is the URL to match (exact or pattern based on URLType)
+	URL string `koanf:"url"`
+
+	// URLType specifies how to match the URL
+	// Options: "exact" (default), "pattern" (regex)
+	URLType string `koanf:"url_type"`
+
+	// Headers are optional headers to match
+	Headers map[string]string `koanf:"headers"`
+}
+
+// FixtureResponse defines the HTTP response to return for a fixture
+type FixtureResponse struct {
+	// StatusCode is the HTTP status code (e.g., 200, 404)
+	StatusCode int `koanf:"status"`
+
+	// Headers are optional response headers
+	Headers map[string]string `koanf:"headers"`
+
+	// Body is the response body content
+	Body string `koanf:"body"`
 }

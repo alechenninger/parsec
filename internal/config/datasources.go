@@ -12,11 +12,11 @@ import (
 )
 
 // NewDataSourceRegistry creates a data source registry from configuration
-func NewDataSourceRegistry(cfg []DataSourceConfig) (*service.DataSourceRegistry, error) {
+func NewDataSourceRegistry(cfg []DataSourceConfig, httpProvider httpfixture.FixtureProvider) (*service.DataSourceRegistry, error) {
 	registry := service.NewDataSourceRegistry()
 
 	for _, dsCfg := range cfg {
-		ds, err := newDataSource(dsCfg)
+		ds, err := newDataSource(dsCfg, httpProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create data source %s: %w", dsCfg.Name, err)
 		}
@@ -27,17 +27,17 @@ func NewDataSourceRegistry(cfg []DataSourceConfig) (*service.DataSourceRegistry,
 }
 
 // newDataSource creates a data source from configuration
-func newDataSource(cfg DataSourceConfig) (service.DataSource, error) {
+func newDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProvider) (service.DataSource, error) {
 	switch cfg.Type {
 	case "lua":
-		return newLuaDataSource(cfg)
+		return newLuaDataSource(cfg, httpProvider)
 	default:
 		return nil, fmt.Errorf("unknown data source type: %s (supported: lua)", cfg.Type)
 	}
 }
 
 // newLuaDataSource creates a Lua data source with optional caching
-func newLuaDataSource(cfg DataSourceConfig) (service.DataSource, error) {
+func newLuaDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProvider) (service.DataSource, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("data source name is required")
 	}
@@ -65,7 +65,7 @@ func newLuaDataSource(cfg DataSourceConfig) (service.DataSource, error) {
 	// Build HTTP config
 	var httpConfig *luaservices.HTTPServiceConfig
 	if cfg.HTTPConfig != nil {
-		httpCfg, err := buildHTTPConfig(cfg.HTTPConfig)
+		httpCfg, err := buildHTTPConfig(cfg.HTTPConfig, httpProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP config: %w", err)
 		}
@@ -94,7 +94,7 @@ func newLuaDataSource(cfg DataSourceConfig) (service.DataSource, error) {
 }
 
 // buildHTTPConfig creates an HTTPServiceConfig from the config structure
-func buildHTTPConfig(cfg *HTTPConfig) (*luaservices.HTTPServiceConfig, error) {
+func buildHTTPConfig(cfg *HTTPConfig, httpProvider httpfixture.FixtureProvider) (*luaservices.HTTPServiceConfig, error) {
 	httpServiceCfg := &luaservices.HTTPServiceConfig{}
 
 	// Parse timeout
@@ -108,23 +108,9 @@ func buildHTTPConfig(cfg *HTTPConfig) (*luaservices.HTTPServiceConfig, error) {
 		httpServiceCfg.Timeout = 30 * time.Second // default
 	}
 
-	// Load fixtures if configured
-	if cfg.FixturesFile != "" && cfg.FixturesDir != "" {
-		return nil, fmt.Errorf("cannot specify both fixtures_file and fixtures_dir")
-	}
-
-	if cfg.FixturesFile != "" {
-		provider, err := httpfixture.LoadFixturesFromFile(cfg.FixturesFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load fixtures from file: %w", err)
-		}
-		httpServiceCfg.FixtureProvider = provider
-	} else if cfg.FixturesDir != "" {
-		provider, err := httpfixture.LoadFixturesFromDir(cfg.FixturesDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load fixtures from directory: %w", err)
-		}
-		httpServiceCfg.FixtureProvider = provider
+	// Use the provided HTTP fixture provider (from top-level config)
+	if httpProvider != nil {
+		httpServiceCfg.FixtureProvider = httpProvider
 	}
 
 	return httpServiceCfg, nil

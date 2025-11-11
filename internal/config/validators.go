@@ -2,31 +2,33 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/httpfixture"
 	"github.com/alechenninger/parsec/internal/request"
 	"github.com/alechenninger/parsec/internal/trust"
 )
 
 // NewTrustStore creates a trust store from configuration
-func NewTrustStore(cfg TrustStoreConfig) (trust.Store, error) {
+func NewTrustStore(cfg TrustStoreConfig, httpProvider httpfixture.FixtureProvider) (trust.Store, error) {
 	switch cfg.Type {
 	case "stub_store":
-		return newStubStore(cfg)
+		return newStubStore(cfg, httpProvider)
 	case "filtered_store":
-		return newFilteredStore(cfg)
+		return newFilteredStore(cfg, httpProvider)
 	default:
 		return nil, fmt.Errorf("unknown trust store type: %s (supported: stub_store, filtered_store)", cfg.Type)
 	}
 }
 
 // newStubStore creates a stub trust store (no filtering)
-func newStubStore(cfg TrustStoreConfig) (trust.Store, error) {
+func newStubStore(cfg TrustStoreConfig, httpProvider httpfixture.FixtureProvider) (trust.Store, error) {
 	store := trust.NewStubStore()
 
 	// Add validators
 	for _, validatorCfg := range cfg.Validators {
-		validator, err := newValidator(validatorCfg.ValidatorConfig)
+		validator, err := newValidator(validatorCfg.ValidatorConfig, httpProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create validator: %w", err)
 		}
@@ -37,7 +39,7 @@ func newStubStore(cfg TrustStoreConfig) (trust.Store, error) {
 }
 
 // newFilteredStore creates a filtered trust store with validator filtering
-func newFilteredStore(cfg TrustStoreConfig) (trust.Store, error) {
+func newFilteredStore(cfg TrustStoreConfig, httpProvider httpfixture.FixtureProvider) (trust.Store, error) {
 	var opts []trust.FilteredStoreOption
 
 	// Add validator filter if configured
@@ -60,7 +62,7 @@ func newFilteredStore(cfg TrustStoreConfig) (trust.Store, error) {
 			return nil, fmt.Errorf("validator name is required for filtered store")
 		}
 
-		validator, err := newValidator(validatorCfg.ValidatorConfig)
+		validator, err := newValidator(validatorCfg.ValidatorConfig, httpProvider)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create validator %s: %w", validatorCfg.Name, err)
 		}
@@ -72,10 +74,10 @@ func newFilteredStore(cfg TrustStoreConfig) (trust.Store, error) {
 }
 
 // newValidator creates a validator from configuration
-func newValidator(cfg ValidatorConfig) (trust.Validator, error) {
+func newValidator(cfg ValidatorConfig, httpProvider httpfixture.FixtureProvider) (trust.Validator, error) {
 	switch cfg.Type {
 	case "jwt_validator":
-		return newJWTValidator(cfg)
+		return newJWTValidator(cfg, httpProvider)
 	case "json_validator":
 		return newJSONValidator(cfg)
 	case "stub_validator":
@@ -86,7 +88,7 @@ func newValidator(cfg ValidatorConfig) (trust.Validator, error) {
 }
 
 // newJWTValidator creates a JWT validator
-func newJWTValidator(cfg ValidatorConfig) (trust.Validator, error) {
+func newJWTValidator(cfg ValidatorConfig, httpProvider httpfixture.FixtureProvider) (trust.Validator, error) {
 	if cfg.Issuer == "" {
 		return nil, fmt.Errorf("jwt_validator requires issuer")
 	}
@@ -107,6 +109,16 @@ func newJWTValidator(cfg ValidatorConfig) (trust.Validator, error) {
 			return nil, fmt.Errorf("invalid refresh_interval: %w", err)
 		}
 		validatorCfg.RefreshInterval = duration
+	}
+
+	// Create HTTP client with fixture transport if fixtures are configured
+	if httpProvider != nil {
+		validatorCfg.HTTPClient = &http.Client{
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: httpProvider,
+				Strict:   true,
+			}),
+		}
 	}
 
 	return trust.NewJWTValidator(validatorCfg)
