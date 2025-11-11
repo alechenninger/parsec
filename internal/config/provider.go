@@ -20,7 +20,7 @@ type Provider struct {
 	issuerRegistry       service.Registry
 	claimsFilterRegistry server.ClaimsFilterRegistry
 	tokenService         *service.TokenService
-	httpFixtureProvider  httpfixture.FixtureProvider
+	httpFixtureProvider  *httpfixture.CompositeFixtureProvider
 	httpFixtureBuilt     bool
 }
 
@@ -140,14 +140,23 @@ func (p *Provider) TrustDomain() string {
 	return p.config.TrustDomain
 }
 
-// HTTPFixtureProvider returns the HTTP fixture provider for hermetic testing
+// HTTPFixtureProvider returns the composite fixture provider for hermetic testing
 // Returns nil if no fixtures are configured (normal production mode)
-func (p *Provider) HTTPFixtureProvider() httpfixture.FixtureProvider {
+// The returned provider implements FixtureProvider for HTTP request handling
+// and provides JWKSFixture(issuer) for direct access to JWKS fixtures in tests
+func (p *Provider) HTTPFixtureProvider() *httpfixture.CompositeFixtureProvider {
 	if p.httpFixtureBuilt {
 		return p.httpFixtureProvider
 	}
 
-	p.httpFixtureProvider = BuildHTTPFixtureProvider(p.config.Fixtures)
+	provider, err := BuildHTTPFixtureProvider(p.config.Fixtures, nil)
+	if err != nil {
+		// In production mode, fixture errors should fail fast
+		// This is a configuration error, not a runtime error
+		panic(fmt.Sprintf("failed to build HTTP fixture provider: %v", err))
+	}
+
+	p.httpFixtureProvider = provider
 	p.httpFixtureBuilt = true
 	return p.httpFixtureProvider
 }

@@ -16,51 +16,21 @@ exchange_server:
 # Top-level fixtures for hermetic testing
 # These fixtures replace all real HTTP calls with canned responses
 fixtures:
-  # JWKS endpoint fixture for actor JWT validator
-  - type: http_rule
-    request:
-      method: GET
-      url: "https://auth.internal.example.com/.well-known/jwks.json"
-      url_type: exact
-    response:
-      status: 200
-      headers:
-        Content-Type: application/json
-      body: |
-        {
-          "keys": [
-            {
-              "kty": "RSA",
-              "use": "sig",
-              "kid": "test-key-1",
-              "n": "xGOr-H7A...",
-              "e": "AQAB"
-            }
-          ]
-        }
+  # JWKS fixture for actor JWT validator
+  # This automatically generates a key pair and serves a JWKS endpoint
+  - type: jwks
+    issuer: "https://auth.internal.example.com"
+    jwks_url: "https://auth.internal.example.com/.well-known/jwks.json"
+    key_id: "test-key-1"
+    algorithm: "RS256"
 
-  # JWKS endpoint fixture for subject JWT validator
-  - type: http_rule
-    request:
-      method: GET
-      url: "https://idp.customer.example.com/.well-known/jwks.json"
-      url_type: exact
-    response:
-      status: 200
-      headers:
-        Content-Type: application/json
-      body: |
-        {
-          "keys": [
-            {
-              "kty": "RSA",
-              "use": "sig",
-              "kid": "customer-key-1",
-              "n": "yH1s-K8B...",
-              "e": "AQAB"
-            }
-          ]
-        }
+  # JWKS fixture for subject JWT validator
+  # This automatically generates a key pair and serves a JWKS endpoint
+  - type: jwks
+    issuer: "https://idp.customer.example.com"
+    jwks_url: "https://idp.customer.example.com/.well-known/jwks.json"
+    key_id: "customer-key-1"
+    algorithm: "RS256"
 
   # User API fixture (pattern matching for any user ID)
   - type: http_rule

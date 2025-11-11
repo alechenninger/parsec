@@ -20,26 +20,24 @@ exchange_server:
 # Top-level fixtures for hermetic testing (optional)
 # These fixtures apply globally to all HTTP clients (validators, datasources, etc.)
 # fixtures:
+#   # JWKS fixture - automatically generates key pair and serves JWKS endpoint
+#   - type: jwks
+#     issuer: "https://idp.example.com"
+#     jwks_url: "https://idp.example.com/.well-known/jwks.json"
+#     key_id: "test-key-1"      # optional, defaults to "test-key-1"
+#     algorithm: "RS256"         # optional, defaults to "RS256"
+#
+#   # HTTP rule fixture - returns canned HTTP response
 #   - type: http_rule
 #     request:
 #       method: GET
 #       url: "https://api.example.com/users/.*"
-#       url_type: pattern
+#       url_type: pattern        # "exact" or "pattern" (regex)
 #     response:
 #       status: 200
 #       headers:
 #         Content-Type: application/json
 #       body: '{"user_id": "test_user", "roles": ["admin"]}'
-#   - type: http_rule
-#     request:
-#       method: GET
-#       url: "https://idp.example.com/.well-known/jwks.json"
-#       url_type: exact
-#     response:
-#       status: 200
-#       headers:
-#         Content-Type: application/json
-#       body: '{"keys": []}'
 
 # Filtered trust store with multiple validators and CEL-based filtering
 trust_store:

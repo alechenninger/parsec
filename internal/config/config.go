@@ -239,12 +239,18 @@ type ClaimsFilterConfig struct {
 // FixtureConfig configures a fixture for hermetic testing
 type FixtureConfig struct {
 	// Type selects the fixture type
-	// Options: "http_rule"
+	// Options: "http_rule", "jwks"
 	Type string `koanf:"type"`
 
 	// HTTP rule fields (when Type is "http_rule")
 	Request  FixtureRequest  `koanf:"request"`
 	Response FixtureResponse `koanf:"response"`
+
+	// JWKS fields (when Type is "jwks")
+	Issuer    string `koanf:"issuer"`    // Issuer URL (iss claim)
+	JWKSURL   string `koanf:"jwks_url"`  // URL where JWKS will be served
+	KeyID     string `koanf:"key_id"`    // Optional key identifier (defaults to "test-key-1")
+	Algorithm string `koanf:"algorithm"` // Optional algorithm (defaults to "RS256")
 }
 
 // FixtureRequest defines request matching criteria for HTTP fixtures

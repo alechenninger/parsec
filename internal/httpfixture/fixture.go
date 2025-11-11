@@ -36,3 +36,33 @@ type FixtureRequest struct {
 type FixtureSet struct {
 	Rules []HTTPFixtureRule `json:"fixtures" yaml:"fixtures"`
 }
+
+// CompositeFixtureProvider composes multiple fixture providers and provides
+// direct access to specific fixture types (e.g., JWKS fixtures by issuer)
+type CompositeFixtureProvider struct {
+	providers    []FixtureProvider
+	jwksFixtures map[string]*JWKSFixture
+}
+
+// NewCompositeFixtureProvider creates a composite fixture provider
+func NewCompositeFixtureProvider(providers []FixtureProvider, jwksFixtures map[string]*JWKSFixture) *CompositeFixtureProvider {
+	return &CompositeFixtureProvider{
+		providers:    providers,
+		jwksFixtures: jwksFixtures,
+	}
+}
+
+// GetFixture implements FixtureProvider by trying each provider in order
+func (c *CompositeFixtureProvider) GetFixture(req *http.Request) *Fixture {
+	for _, p := range c.providers {
+		if fixture := p.GetFixture(req); fixture != nil {
+			return fixture
+		}
+	}
+	return nil
+}
+
+// JWKSFixture returns a JWKS fixture by issuer, or nil if not found
+func (c *CompositeFixtureProvider) JWKSFixture(issuer string) *JWKSFixture {
+	return c.jwksFixtures[issuer]
+}
