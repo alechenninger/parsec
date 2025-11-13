@@ -49,6 +49,7 @@ Implement actual JWT signing with private keys:
 - [ ] Ensure state store works with multiple signing issuers
 - [X] 2nd pass on concurrency control
 - [ ] Implement persistent key store with ConfigMap
+- [ ] Validate AWS KMS works and performs well
 
 ### Static Trust Store
 Load trust domain configuration from YAML:
