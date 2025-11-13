@@ -13,8 +13,8 @@ Functionality not yet well understood or yet lacking confidence the current arch
 
 - [X] Ability to define http fixtures for lua data sources which return fixture responses instead of actually making an http call
 - [~] Example using production config with fixtures overlaid to write tests against input/output pairs
-- [ ] Ability to stand up hermetic server with fixture APIs (credential issuers)
-- [ ] Support key managemetn fixtures
+- [X] Ability to stand up hermetic server with fixture APIs (credential issuers)
+- [X] Support key managemetn fixtures
 
 ### HTTP configuration for data sources
 
@@ -47,7 +47,8 @@ Implement actual JWT signing with private keys:
 - [X] Proper transaction token claims structure
 - [X] Public key exposure via JWKS endpoint
 - [ ] Ensure state store works with multiple signing issuers
-- [ ] 2nd pass on concurrency control / implement real impl with ConfigMap
+- [X] 2nd pass on concurrency control
+- [ ] Implement persistent key store with ConfigMap
 
 ### Static Trust Store
 Load trust domain configuration from YAML:
@@ -59,10 +60,11 @@ Load trust domain configuration from YAML:
 Complete configuration loading:
 - [X] YAML configuration file format
 - [X] Environment variable overrides
-- [ ] Validation and hot reload
+- [ ] Validation and hot reload (optional, helps avoid unnecessarily clearing cache)
 
 ### Observability
-Add structured logging and metrics:
+Add structured logging and metrics. Would like to experiment with observability achitecture patterns. (e.g. https://martinfowler.com/articles/domain-oriented-observability.html)
+
 - [ ] Request/response logging
 - [ ] Token issuance metrics
 - [ ] Data source performance metrics
@@ -71,5 +73,5 @@ Add structured logging and metrics:
 ### Production Hardening
 - [ ] Graceful shutdown
 - [ ] Health checks – use standard grpc health protocol (separate readiness and liveness services)
-- [ ] Circuit breakers for external calls
+- [ ] Circuit breakers for external calls / caching failures (failing open vs closed)
 
