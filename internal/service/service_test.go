@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,26 +50,14 @@ func TestTokenService_IssueTokens_Observability(t *testing.T) {
 			t.Fatalf("expected 1 token, got %d", len(tokens))
 		}
 
-		// Get the probe that was created for this request
-		probe := fakeObs.lastProbe
-
-		// Verify probe was called correctly with exact sequence
-		probe.assertCallSequence("TokenTypeIssuanceStarted", "TokenTypeIssuanceSucceeded", "End")
-
-		// Verify observer was called with correct parameters
-		if fakeObs.startSubject != subject {
-			t.Errorf("Observer called with wrong subject")
-		}
-		if fakeObs.startActor != actor {
-			t.Errorf("Observer called with wrong actor")
-		}
-		if fakeObs.startScope != "read write" {
-			t.Errorf("Observer called with scope %q, expected %q", fakeObs.startScope, "read write")
-		}
-
-		// Verify token type was tracked correctly
-		probe.assertTokenTypeStarted(TokenTypeTransactionToken)
-		probe.assertTokenTypeSucceeded(TokenTypeTransactionToken)
+		// Verify observer saw probe started with correct parameters and method sequence
+		scope := "read write"
+		p := fakeObs.assertProbeStartedWith(subject, actor, &scope, []TokenType{TokenTypeTransactionToken})
+		p.assertProbeSequence(
+			probe("TokenTypeIssuanceStarted", TokenTypeTransactionToken),
+			probe("TokenTypeIssuanceSucceeded", TokenTypeTransactionToken, stubToken),
+			"End",
+		)
 	})
 
 	t.Run("issuer not found calls probe correctly", func(t *testing.T) {
@@ -90,9 +78,13 @@ func TestTokenService_IssueTokens_Observability(t *testing.T) {
 			t.Fatal("expected error when issuer not found")
 		}
 
-		// Verify probe calls in exact sequence
-		probe := fakeObs.lastProbe
-		probe.assertCallSequence("TokenTypeIssuanceStarted", "IssuerNotFound", "End")
+		// Verify observer saw probe with correct method sequence including error
+		p := fakeObs.assertProbeStartedWith(nil, nil, nil, nil)
+		p.assertProbeSequence(
+			probe("TokenTypeIssuanceStarted", TokenTypeTransactionToken),
+			probe("IssuerNotFound", TokenTypeTransactionToken, errorContaining("no issuer")),
+			"End",
+		)
 	})
 
 	t.Run("token issuance failure calls probe correctly", func(t *testing.T) {
@@ -117,12 +109,13 @@ func TestTokenService_IssueTokens_Observability(t *testing.T) {
 			t.Fatal("expected error when token issuance fails")
 		}
 
-		// Verify probe calls in exact sequence
-		probe := fakeObs.lastProbe
-		probe.assertCallSequence("TokenTypeIssuanceStarted", "TokenTypeIssuanceFailed", "End")
-
-		// Verify failure was recorded with correct token type
-		probe.assertTokenTypeFailed(TokenTypeTransactionToken)
+		// Verify observer saw probe with correct method sequence including error
+		p := fakeObs.assertProbeStartedWith(nil, nil, nil, nil)
+		p.assertProbeSequence(
+			probe("TokenTypeIssuanceStarted", TokenTypeTransactionToken),
+			probe("TokenTypeIssuanceFailed", TokenTypeTransactionToken, issueErr),
+			"End",
+		)
 	})
 
 	t.Run("multiple token types are observed independently", func(t *testing.T) {
@@ -147,19 +140,16 @@ func TestTokenService_IssueTokens_Observability(t *testing.T) {
 			t.Fatalf("IssueTokens failed: %v", err)
 		}
 
+		// Verify observer saw probe with correct method sequence
 		// Should have: (Started + Succeeded) * 2 + End = 5 calls
-		probe := fakeObs.lastProbe
-		probe.assertCallSequence(
-			"TokenTypeIssuanceStarted", "TokenTypeIssuanceSucceeded",
-			"TokenTypeIssuanceStarted", "TokenTypeIssuanceSucceeded",
+		p := fakeObs.assertProbeStartedWith(nil, nil, nil, nil)
+		p.assertProbeSequence(
+			probe("TokenTypeIssuanceStarted", TokenTypeTransactionToken),
+			probe("TokenTypeIssuanceSucceeded", TokenTypeTransactionToken, token1),
+			probe("TokenTypeIssuanceStarted", TokenTypeAccessToken),
+			probe("TokenTypeIssuanceSucceeded", TokenTypeAccessToken, token2),
 			"End",
 		)
-
-		// Verify both token types were started and succeeded
-		probe.assertTokenTypeStarted(TokenTypeTransactionToken)
-		probe.assertTokenTypeSucceeded(TokenTypeTransactionToken)
-		probe.assertTokenTypeStarted(TokenTypeAccessToken)
-		probe.assertTokenTypeSucceeded(TokenTypeAccessToken)
 	})
 
 	t.Run("composite observer delegates to all observers", func(t *testing.T) {
@@ -186,37 +176,34 @@ func TestTokenService_IssueTokens_Observability(t *testing.T) {
 			t.Fatalf("IssueTokens failed: %v", err)
 		}
 
-		// Verify all three observers were called
+		// Verify all three observers were called and each created a probe with correct sequence
 		for i, fakeObs := range []*fakeObserver{fakeObs1, fakeObs2, fakeObs3} {
-			if fakeObs.lastProbe == nil {
-				t.Errorf("observer %d was not called", i+1)
+			fakeObs.assertProbeCount(1)
+			if len(fakeObs.probes) == 0 {
+				t.Errorf("observer %d did not create a probe", i+1)
 				continue
 			}
-
-			probe := fakeObs.lastProbe
-			probe.assertCallSequence("TokenTypeIssuanceStarted", "TokenTypeIssuanceSucceeded", "End")
-			probe.assertTokenTypeStarted(TokenTypeTransactionToken)
-			probe.assertTokenTypeSucceeded(TokenTypeTransactionToken)
+			p := fakeObs.probes[0]
+			p.assertProbeSequence(
+				probe("TokenTypeIssuanceStarted", TokenTypeTransactionToken),
+				probe("TokenTypeIssuanceSucceeded", TokenTypeTransactionToken, stubToken),
+				"End",
+			)
 		}
 	})
 }
 
-// fakeObserver creates fake probes and captures parameters passed to TokenIssuanceStarted
+// fakeObserver creates fake probes and tracks them for test assertions.
+// Tests should assert against the observer, which knows about all probes created.
 type fakeObserver struct {
 	t *testing.T
 
-	// Captured parameters from TokenIssuanceStarted
-	startSubject    *trust.Result
-	startActor      *trust.Result
-	startScope      string
-	startTokenTypes []TokenType
-
-	// The last probe created (for test assertions)
-	lastProbe *fakeProbe
+	// List of all probes created (one per TokenIssuanceStarted call)
+	probes []*fakeProbe
 }
 
 func newFakeObserver(t *testing.T) *fakeObserver {
-	return &fakeObserver{t: t}
+	return &fakeObserver{t: t, probes: []*fakeProbe{}}
 }
 
 func (o *fakeObserver) TokenIssuanceStarted(
@@ -226,34 +213,86 @@ func (o *fakeObserver) TokenIssuanceStarted(
 	scope string,
 	tokenTypes []TokenType,
 ) (context.Context, TokenIssuanceProbe) {
-	// Capture parameters for test assertions
-	o.startSubject = subject
-	o.startActor = actor
-	o.startScope = scope
-	o.startTokenTypes = tokenTypes
-
 	// Create request-scoped probe
-	probe := newFakeProbe(o.t)
-	o.lastProbe = probe
+	probe := newFakeProbe(o.t, subject, actor, scope, tokenTypes)
+	o.probes = append(o.probes, probe)
 	return ctx, probe
 }
 
-// fakeProbe is a request-scoped test double that records calls and enforces invariants.
-//
-// It uses a state-based design where each recorded call becomes a state object
-// that knows what valid transitions are allowed. Each state validates the next
-// state, keeping validation logic cohesive and the probe implementation simple.
+// assertProbeCount verifies the expected number of probes were created
+func (o *fakeObserver) assertProbeCount(expected int) {
+	o.t.Helper()
+	if len(o.probes) != expected {
+		o.t.Errorf("expected %d probe(s), got %d", expected, len(o.probes))
+	}
+}
+
+// assertProbeStartedWith finds a probe that was started with the given parameters.
+// Returns the probe if found, fails the test if not found or if criteria don't match.
+// Pass nil for parameters you don't want to check.
+func (o *fakeObserver) assertProbeStartedWith(subject *trust.Result, actor *trust.Result, scope *string, tokenTypes []TokenType) *fakeProbe {
+	o.t.Helper()
+
+	if len(o.probes) == 0 {
+		o.t.Fatal("no probes were created")
+		return nil
+	}
+
+	// For now, just check the first probe (most common case)
+	// Could be extended to search through all probes if needed
+	probe := o.probes[0]
+
+	if subject != nil && probe.subject != subject {
+		o.t.Errorf("expected probe with subject %v, got %v", subject, probe.subject)
+	}
+	if actor != nil && probe.actor != actor {
+		o.t.Errorf("expected probe with actor %v, got %v", actor, probe.actor)
+	}
+	if scope != nil && probe.scope != *scope {
+		o.t.Errorf("expected probe with scope %q, got %q", *scope, probe.scope)
+	}
+	if tokenTypes != nil {
+		if len(probe.tokenTypes) != len(tokenTypes) {
+			o.t.Errorf("expected probe with %d token types, got %d", len(tokenTypes), len(probe.tokenTypes))
+		} else {
+			for i, tt := range tokenTypes {
+				if probe.tokenTypes[i] != tt {
+					o.t.Errorf("expected token type[%d] %v, got %v", i, tt, probe.tokenTypes[i])
+				}
+			}
+		}
+	}
+
+	return probe
+}
+
+// getProbe returns the probe at the given index (0-based)
+func (o *fakeObserver) getProbe(index int) *fakeProbe {
+	o.t.Helper()
+	if index < 0 || index >= len(o.probes) {
+		o.t.Fatalf("probe index %d out of range (have %d probes)", index, len(o.probes))
+		return nil
+	}
+	return o.probes[index]
+}
+
+// fakeProbe is a request-scoped test double that records method calls.
+// It simply captures the sequence of calls for later assertion.
 type fakeProbe struct {
 	t      *testing.T
 	states []probeState
+
+	// Parameters captured at probe creation (from TokenIssuanceStarted)
+	subject    *trust.Result
+	actor      *trust.Result
+	scope      string
+	tokenTypes []TokenType
 }
 
 // probeState represents a single probe method call with its arguments.
-// Each state knows how to validate transitions to the next state.
 type probeState interface {
 	method() string
 	arguments() []any
-	canTransitionTo(next probeState) error
 }
 
 // Concrete state types (one per probe method)
@@ -266,21 +305,6 @@ func (s *tokenTypeIssuanceStartedState) method() string { return "TokenTypeIssua
 func (s *tokenTypeIssuanceStartedState) arguments() []any {
 	return []any{s.tokenType}
 }
-func (s *tokenTypeIssuanceStartedState) canTransitionTo(next probeState) error {
-	switch n := next.(type) {
-	case *tokenTypeIssuanceStartedState:
-		if n.tokenType == s.tokenType {
-			return fmt.Errorf("token type %s started twice without completion", s.tokenType)
-		}
-		return nil
-	case *tokenTypeIssuanceSucceededState, *tokenTypeIssuanceFailedState, *issuerNotFoundState:
-		return nil
-	case *endState:
-		return fmt.Errorf("cannot End with token type %s still in flight", s.tokenType)
-	default:
-		return fmt.Errorf("invalid transition from TokenTypeIssuanceStarted to %s", next.method())
-	}
-}
 
 type tokenTypeIssuanceSucceededState struct {
 	tokenType TokenType
@@ -290,16 +314,6 @@ type tokenTypeIssuanceSucceededState struct {
 func (s *tokenTypeIssuanceSucceededState) method() string { return "TokenTypeIssuanceSucceeded" }
 func (s *tokenTypeIssuanceSucceededState) arguments() []any {
 	return []any{s.tokenType, s.token}
-}
-func (s *tokenTypeIssuanceSucceededState) canTransitionTo(next probeState) error {
-	switch next.(type) {
-	case *tokenTypeIssuanceStartedState, *endState:
-		return nil
-	case *tokenTypeIssuanceSucceededState, *tokenTypeIssuanceFailedState:
-		return errors.New("cannot succeed/fail after already completing a token type")
-	default:
-		return fmt.Errorf("invalid transition from TokenTypeIssuanceSucceeded to %s", next.method())
-	}
 }
 
 type tokenTypeIssuanceFailedState struct {
@@ -311,16 +325,6 @@ func (s *tokenTypeIssuanceFailedState) method() string { return "TokenTypeIssuan
 func (s *tokenTypeIssuanceFailedState) arguments() []any {
 	return []any{s.tokenType, s.err}
 }
-func (s *tokenTypeIssuanceFailedState) canTransitionTo(next probeState) error {
-	switch next.(type) {
-	case *endState:
-		return nil
-	case *tokenTypeIssuanceStartedState, *tokenTypeIssuanceSucceededState:
-		return errors.New("cannot continue after token type issuance failed")
-	default:
-		return fmt.Errorf("invalid transition from TokenTypeIssuanceFailed to %s", next.method())
-	}
-}
 
 type issuerNotFoundState struct {
 	tokenType TokenType
@@ -331,14 +335,6 @@ func (s *issuerNotFoundState) method() string { return "IssuerNotFound" }
 func (s *issuerNotFoundState) arguments() []any {
 	return []any{s.tokenType, s.err}
 }
-func (s *issuerNotFoundState) canTransitionTo(next probeState) error {
-	switch next.(type) {
-	case *endState:
-		return nil
-	default:
-		return errors.New("IssuerNotFound must be followed by End")
-	}
-}
 
 type endState struct{}
 
@@ -346,25 +342,20 @@ func (s *endState) method() string { return "End" }
 func (s *endState) arguments() []any {
 	return []any{}
 }
-func (s *endState) canTransitionTo(next probeState) error {
-	return errors.New("End called multiple times")
-}
 
-func newFakeProbe(t *testing.T) *fakeProbe {
+func newFakeProbe(t *testing.T, subject *trust.Result, actor *trust.Result, scope string, tokenTypes []TokenType) *fakeProbe {
 	return &fakeProbe{
-		t:      t,
-		states: []probeState{},
+		t:          t,
+		states:     []probeState{},
+		subject:    subject,
+		actor:      actor,
+		scope:      scope,
+		tokenTypes: tokenTypes,
 	}
 }
 
-// recordState validates and records a new state transition
+// recordState records a new method call
 func (f *fakeProbe) recordState(state probeState) {
-	if len(f.states) > 0 {
-		lastState := f.states[len(f.states)-1]
-		if err := lastState.canTransitionTo(state); err != nil {
-			f.t.Error(err)
-		}
-	}
 	f.states = append(f.states, state)
 }
 
@@ -399,13 +390,13 @@ func (f *fakeProbe) End() {
 	f.recordState(&endState{})
 }
 
-// assertCallSequence verifies the exact sequence of method calls.
-// Accepts either strings (method names) or stateMatcher functions.
-func (f *fakeProbe) assertCallSequence(expected ...any) {
+// assertProbeSequence verifies the exact sequence of probe method calls.
+// Accepts either strings (method names) or probeMatcher functions.
+func (f *fakeProbe) assertProbeSequence(expected ...any) {
 	f.t.Helper()
 	if len(f.states) != len(expected) {
-		f.t.Errorf("expected %d calls, got %d", len(expected), len(f.states))
-		f.t.Logf("actual calls: %v", f.methodNames())
+		f.t.Errorf("expected %d probe calls, got %d", len(expected), len(f.states))
+		f.t.Logf("actual probe calls: %v", f.methodNames())
 		return
 	}
 	for i, exp := range expected {
@@ -414,50 +405,17 @@ func (f *fakeProbe) assertCallSequence(expected ...any) {
 		case string:
 			// Simple method name matching
 			if state.method() != e {
-				f.t.Errorf("call %d: expected method %s, got %s", i, e, state.method())
+				f.t.Errorf("probe call %d: expected method %s, got %s", i, e, state.method())
 			}
-		case stateMatcher:
+		case probeMatcher:
 			// Custom matcher function
 			if !e(state) {
-				f.t.Errorf("call %d: matcher failed for %s", i, state.method())
+				f.t.Errorf("probe call %d: matcher failed for %s", i, state.method())
 			}
 		default:
 			f.t.Errorf("invalid expected type at position %d: %T", i, exp)
 		}
 	}
-}
-
-// assertTokenTypeStarted checks that a specific token type was started
-func (f *fakeProbe) assertTokenTypeStarted(tokenType TokenType) {
-	f.t.Helper()
-	for _, state := range f.states {
-		if s, ok := state.(*tokenTypeIssuanceStartedState); ok && s.tokenType == tokenType {
-			return
-		}
-	}
-	f.t.Errorf("expected TokenTypeIssuanceStarted for %s, but it was not called", tokenType)
-}
-
-// assertTokenTypeSucceeded checks that a specific token type succeeded
-func (f *fakeProbe) assertTokenTypeSucceeded(tokenType TokenType) {
-	f.t.Helper()
-	for _, state := range f.states {
-		if s, ok := state.(*tokenTypeIssuanceSucceededState); ok && s.tokenType == tokenType {
-			return
-		}
-	}
-	f.t.Errorf("expected TokenTypeIssuanceSucceeded for %s, but it was not called", tokenType)
-}
-
-// assertTokenTypeFailed checks that a specific token type failed
-func (f *fakeProbe) assertTokenTypeFailed(tokenType TokenType) {
-	f.t.Helper()
-	for _, state := range f.states {
-		if s, ok := state.(*tokenTypeIssuanceFailedState); ok && s.tokenType == tokenType {
-			return
-		}
-	}
-	f.t.Errorf("expected TokenTypeIssuanceFailed for %s, but it was not called", tokenType)
 }
 
 // methodNames returns just the method names from states for logging
@@ -469,11 +427,40 @@ func (f *fakeProbe) methodNames() []string {
 	return names
 }
 
-// stateMatcher is a function that matches against a probeState
-type stateMatcher func(probeState) bool
+// ArgumentMatcher allows flexible matching of probe arguments
+type ArgumentMatcher interface {
+	Matches(actual any) bool
+}
 
-// call creates a matcher that checks method name and optionally arguments
-func call(method string, args ...any) stateMatcher {
+// errorContaining creates a matcher that checks if an error's message contains a substring
+type errorContaining string
+
+func (e errorContaining) Matches(actual any) bool {
+	err, ok := actual.(error)
+	if !ok || err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), string(e))
+}
+
+// anyError matches any non-nil error
+type anyErrorMatcher struct{}
+
+func anyError() ArgumentMatcher {
+	return anyErrorMatcher{}
+}
+
+func (anyErrorMatcher) Matches(actual any) bool {
+	err, ok := actual.(error)
+	return ok && err != nil
+}
+
+// probeMatcher is a function that matches against a probeState
+type probeMatcher func(probeState) bool
+
+// probe creates a matcher that checks probe method name and optionally arguments.
+// Arguments can be either concrete values (checked with ==) or ArgumentMatcher instances.
+func probe(method string, args ...any) probeMatcher {
 	return func(s probeState) bool {
 		if s.method() != method {
 			return false
@@ -486,8 +473,16 @@ func call(method string, args ...any) stateMatcher {
 			return false
 		}
 		for i, expected := range args {
-			if expected != stateArgs[i] {
-				return false
+			// Check if expected is an ArgumentMatcher
+			if matcher, ok := expected.(ArgumentMatcher); ok {
+				if !matcher.Matches(stateArgs[i]) {
+					return false
+				}
+			} else {
+				// Direct equality comparison
+				if expected != stateArgs[i] {
+					return false
+				}
 			}
 		}
 		return true
