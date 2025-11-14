@@ -99,8 +99,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// 6. Create service handlers
-	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes)
-	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
+	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes, nil)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil)
 	jwksServer := server.NewJWKSServer(server.JWKSServerConfig{
 		IssuerRegistry: issuerRegistry,
 		// Use default refresh interval (1 minute)

@@ -189,14 +189,14 @@ end`,
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 	// Create token service
-	tokenService := service.NewTokenService("prod.example.com", dsRegistry, issuerRegistry)
+	tokenService := service.NewTokenService("prod.example.com", dsRegistry, issuerRegistry, nil)
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
 
 	// ============================================================
 	// 3. Create the Exchange Server (External API)
 	// ============================================================
 	// This is the only component we'll interact with - the external gRPC API
-	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil)
 
 	// ============================================================
 	// 4. TEST: Token Exchange API Contract

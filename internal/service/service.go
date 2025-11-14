@@ -15,6 +15,7 @@ type TokenService struct {
 	trustDomain    string
 	dataSources    *DataSourceRegistry
 	issuerRegistry Registry
+	observer       TokenServiceObserver
 }
 
 // NewTokenService creates a new token service
@@ -22,11 +23,17 @@ func NewTokenService(
 	trustDomain string,
 	dataSources *DataSourceRegistry,
 	issuerRegistry Registry,
+	observer TokenServiceObserver,
 ) *TokenService {
+	// Use null object pattern - default to no-op observer if none provided
+	if observer == nil {
+		observer = NoOpTokenServiceObserver()
+	}
 	return &TokenService{
 		trustDomain:    trustDomain,
 		dataSources:    dataSources,
 		issuerRegistry: issuerRegistry,
+		observer:       observer,
 	}
 }
 
@@ -58,6 +65,10 @@ type IssueRequest struct {
 // IssueTokens orchestrates the complete token issuance process
 // Returns a map of token type to issued token
 func (ts *TokenService) IssueTokens(ctx context.Context, req *IssueRequest) (map[TokenType]*Token, error) {
+	// Create request-scoped probe that captures execution context
+	ctx, probe := ts.observer.TokenIssuanceStarted(ctx, req.Subject, req.Actor, req.Scope, req.TokenTypes)
+	defer probe.End()
+
 	// Build issue context with base information needed for all issuers
 	// Audience is always the trust domain per transaction token spec
 	issueCtx := &IssueContext{
@@ -72,16 +83,21 @@ func (ts *TokenService) IssueTokens(ctx context.Context, req *IssueRequest) (map
 	// Issue tokens for each requested type
 	tokens := make(map[TokenType]*Token)
 	for _, tokenType := range req.TokenTypes {
+		probe.TokenTypeIssuanceStarted(tokenType)
+
 		iss, err := ts.issuerRegistry.GetIssuer(tokenType)
 		if err != nil {
+			probe.IssuerNotFound(tokenType, err)
 			return nil, fmt.Errorf("no issuer for token type %s: %w", tokenType, err)
 		}
 
 		token, err := iss.Issue(ctx, issueCtx)
 		if err != nil {
+			probe.TokenTypeIssuanceFailed(tokenType, err)
 			return nil, fmt.Errorf("failed to issue %s: %w", tokenType, err)
 		}
 
+		probe.TokenTypeIssuanceSucceeded(tokenType, token)
 		tokens[tokenType] = token
 	}
 

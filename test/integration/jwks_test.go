@@ -53,7 +53,7 @@ func TestJWKSEndpoint(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
 	// Create claims filter registry
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
@@ -62,8 +62,8 @@ func TestJWKSEndpoint(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19092,
 		HTTPPort:       18082,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil, nil),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil),
 		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
@@ -229,7 +229,7 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeAccessToken, accessIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
 	// Create claims filter registry
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
@@ -238,8 +238,8 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19093,
 		HTTPPort:       18083,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil, nil),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil),
 		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
@@ -316,7 +316,7 @@ func TestJWKSWithUnsignedIssuer(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, unsignedIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
 	// Create claims filter registry
 	claimsFilterRegistry := server.NewStubClaimsFilterRegistry()
@@ -325,8 +325,8 @@ func TestJWKSWithUnsignedIssuer(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19094,
 		HTTPPort:       18084,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil, nil),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil),
 		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 

@@ -121,6 +121,7 @@ func (p *Provider) TokenService() (*service.TokenService, error) {
 		p.config.TrustDomain,
 		dataSourceRegistry,
 		issuerRegistry,
+		nil, // TODO: Add probe configuration
 	)
 
 	p.tokenService = tokenService

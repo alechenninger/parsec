@@ -31,6 +31,7 @@ type AuthzServer struct {
 
 	trustStore   trust.Store
 	tokenService *service.TokenService
+	observer     service.AuthzCheckObserver
 
 	// TokenTypesToIssue specifies which token types to issue and their headers
 	// This could come from configuration in the future
@@ -38,7 +39,7 @@ type AuthzServer struct {
 }
 
 // NewAuthzServer creates a new ext_authz server
-func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService, tokenTypes []TokenTypeSpec) *AuthzServer {
+func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService, tokenTypes []TokenTypeSpec, observer service.AuthzCheckObserver) *AuthzServer {
 	// Default to transaction tokens if none specified
 	if len(tokenTypes) == 0 {
 		tokenTypes = []TokenTypeSpec{
@@ -49,17 +50,28 @@ func NewAuthzServer(trustStore trust.Store, tokenService *service.TokenService, 
 		}
 	}
 
+	// Use null object pattern - default to no-op observer if none provided
+	if observer == nil {
+		observer = service.NoOpAuthzCheckObserver()
+	}
+
 	return &AuthzServer{
 		trustStore:        trustStore,
 		tokenService:      tokenService,
 		TokenTypesToIssue: tokenTypes,
+		observer:          observer,
 	}
 }
 
 // Check implements the ext_authz check endpoint
 func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.CheckResponse, error) {
+	// Create request-scoped probe
+	ctx, probe := s.observer.AuthzCheckStarted(ctx)
+	defer probe.End()
+
 	// 1. Build request attributes
 	reqAttrs := s.buildRequestAttributes(req)
+	probe.RequestAttributesParsed(reqAttrs)
 
 	// 2. Extract actor credential from gRPC context
 	actorCred, err := extractActorCredential(ctx)
@@ -73,11 +85,14 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 		var validationErr error
 		actor, validationErr = s.trustStore.Validate(ctx, actorCred)
 		if validationErr != nil {
+			probe.ActorValidationFailed(validationErr)
 			return s.denyResponse(codes.Unauthenticated,
 				fmt.Sprintf("actor validation failed: %v", validationErr)), nil
 		}
+		probe.ActorValidationSucceeded(actor)
 	} else {
 		actor = trust.AnonymousResult()
+		probe.ActorValidationSucceeded(actor)
 	}
 
 	// 3. Filter trust store based on actor permissions
@@ -91,15 +106,19 @@ func (s *AuthzServer) Check(ctx context.Context, req *authv3.CheckRequest) (*aut
 	// The extraction layer returns both the credential and which headers were used
 	cred, headersUsed, err := s.extractCredential(req)
 	if err != nil {
+		probe.SubjectCredentialExtractionFailed(err)
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("failed to extract credentials: %v", err)), nil
 	}
+	probe.SubjectCredentialExtracted(cred, headersUsed)
 
 	// 5. Validate subject credentials against filtered trust store
 	// The filtered store only includes validators the actor is allowed to use
 	result, err := filteredStore.Validate(ctx, cred)
 	if err != nil {
+		probe.SubjectValidationFailed(err)
 		return s.denyResponse(codes.Unauthenticated, fmt.Sprintf("validation failed: %v", err)), nil
 	}
+	probe.SubjectValidationSucceeded(result)
 
 	// 6. Issue tokens via TokenService
 	tokenTypes := make([]service.TokenType, len(s.TokenTypesToIssue))

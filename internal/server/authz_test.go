@@ -40,9 +40,9 @@ func TestAuthzServer_Check(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
-	authzServer := NewAuthzServer(trustStore, tokenService, nil)
+	authzServer := NewAuthzServer(trustStore, tokenService, nil, nil)
 
 	t.Run("successful authorization", func(t *testing.T) {
 		req := &authv3.CheckRequest{
@@ -420,9 +420,9 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
-	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
+	authzServer := NewAuthzServer(filteredStore, tokenService, nil, nil)
 
 	t.Run("anonymous actor gets filtered store - no validators match", func(t *testing.T) {
 		// No actor credentials in context, so ForActor will be called with AnonymousResult
@@ -489,7 +489,7 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 		storeWithGateway.AddValidator("external-validator", externalValidator)
 		storeWithGateway.AddValidator("internal-validator", internalValidator)
 
-		authzServerWithGateway := NewAuthzServer(storeWithGateway, tokenService, nil)
+		authzServerWithGateway := NewAuthzServer(storeWithGateway, tokenService, nil, nil)
 
 		req := &authv3.CheckRequest{
 			Attributes: &authv3.AttributeContext{
@@ -545,7 +545,7 @@ func TestAuthzServer_WithActorFiltering(t *testing.T) {
 		})
 		emptyStore.AddValidator(jwtValidator)
 
-		authzServerFailing := NewAuthzServer(emptyStore, tokenService, nil)
+		authzServerFailing := NewAuthzServer(emptyStore, tokenService, nil, nil)
 
 		// Add actor credentials (Bearer) that will fail validation since no Bearer validator exists
 		md := metadata.New(map[string]string{
@@ -638,9 +638,9 @@ func TestAuthzServer_WithActorFilteringByRequestPath(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
-	authzServer := NewAuthzServer(filteredStore, tokenService, nil)
+	authzServer := NewAuthzServer(filteredStore, tokenService, nil, nil)
 
 	t.Run("admin path allows admin validator", func(t *testing.T) {
 		req := &authv3.CheckRequest{

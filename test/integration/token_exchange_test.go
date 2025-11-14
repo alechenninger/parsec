@@ -39,7 +39,7 @@ func setupTestDependencies() (trust.Store, *service.TokenService, service.Regist
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnTokenIssuer)
 
 	trustDomain := "parsec.test"
-	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry)
+	tokenService := service.NewTokenService(trustDomain, dataSourceRegistry, issuerRegistry, nil)
 
 	return trustStore, tokenService, issuerRegistry
 }
@@ -60,8 +60,8 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19090,
 		HTTPPort:       18080,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil, nil),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil),
 		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
@@ -141,8 +141,8 @@ func TestTokenExchangeJSON(t *testing.T) {
 	srv := server.New(server.Config{
 		GRPCPort:       19091,
 		HTTPPort:       18081,
-		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil),
-		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry),
+		AuthzServer:    server.NewAuthzServer(trustStore, tokenService, nil, nil),
+		ExchangeServer: server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil),
 		JWKSServer:     server.NewJWKSServer(server.JWKSServerConfig{IssuerRegistry: issuerRegistry}),
 	})
 
