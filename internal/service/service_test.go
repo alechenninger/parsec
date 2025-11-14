@@ -295,52 +295,18 @@ type probeState interface {
 	arguments() []any
 }
 
-// Concrete state types (one per probe method)
-
-type tokenTypeIssuanceStartedState struct {
-	tokenType TokenType
+// probeCall is a generic implementation of probeState
+type probeCall struct {
+	methodName string
+	args       []any
 }
 
-func (s *tokenTypeIssuanceStartedState) method() string { return "TokenTypeIssuanceStarted" }
-func (s *tokenTypeIssuanceStartedState) arguments() []any {
-	return []any{s.tokenType}
+func (p *probeCall) method() string {
+	return p.methodName
 }
 
-type tokenTypeIssuanceSucceededState struct {
-	tokenType TokenType
-	token     *Token
-}
-
-func (s *tokenTypeIssuanceSucceededState) method() string { return "TokenTypeIssuanceSucceeded" }
-func (s *tokenTypeIssuanceSucceededState) arguments() []any {
-	return []any{s.tokenType, s.token}
-}
-
-type tokenTypeIssuanceFailedState struct {
-	tokenType TokenType
-	err       error
-}
-
-func (s *tokenTypeIssuanceFailedState) method() string { return "TokenTypeIssuanceFailed" }
-func (s *tokenTypeIssuanceFailedState) arguments() []any {
-	return []any{s.tokenType, s.err}
-}
-
-type issuerNotFoundState struct {
-	tokenType TokenType
-	err       error
-}
-
-func (s *issuerNotFoundState) method() string { return "IssuerNotFound" }
-func (s *issuerNotFoundState) arguments() []any {
-	return []any{s.tokenType, s.err}
-}
-
-type endState struct{}
-
-func (s *endState) method() string { return "End" }
-func (s *endState) arguments() []any {
-	return []any{}
+func (p *probeCall) arguments() []any {
+	return p.args
 }
 
 func newFakeProbe(t *testing.T, subject *trust.Result, actor *trust.Result, scope string, tokenTypes []TokenType) *fakeProbe {
@@ -360,34 +326,38 @@ func (f *fakeProbe) recordState(state probeState) {
 }
 
 func (f *fakeProbe) TokenTypeIssuanceStarted(tokenType TokenType) {
-	f.recordState(&tokenTypeIssuanceStartedState{
-		tokenType: tokenType,
+	f.recordState(&probeCall{
+		methodName: "TokenTypeIssuanceStarted",
+		args:       []any{tokenType},
 	})
 }
 
 func (f *fakeProbe) TokenTypeIssuanceSucceeded(tokenType TokenType, token *Token) {
-	f.recordState(&tokenTypeIssuanceSucceededState{
-		tokenType: tokenType,
-		token:     token,
+	f.recordState(&probeCall{
+		methodName: "TokenTypeIssuanceSucceeded",
+		args:       []any{tokenType, token},
 	})
 }
 
 func (f *fakeProbe) TokenTypeIssuanceFailed(tokenType TokenType, err error) {
-	f.recordState(&tokenTypeIssuanceFailedState{
-		tokenType: tokenType,
-		err:       err,
+	f.recordState(&probeCall{
+		methodName: "TokenTypeIssuanceFailed",
+		args:       []any{tokenType, err},
 	})
 }
 
 func (f *fakeProbe) IssuerNotFound(tokenType TokenType, err error) {
-	f.recordState(&issuerNotFoundState{
-		tokenType: tokenType,
-		err:       err,
+	f.recordState(&probeCall{
+		methodName: "IssuerNotFound",
+		args:       []any{tokenType, err},
 	})
 }
 
 func (f *fakeProbe) End() {
-	f.recordState(&endState{})
+	f.recordState(&probeCall{
+		methodName: "End",
+		args:       []any{},
+	})
 }
 
 // assertProbeSequence verifies the exact sequence of probe method calls.
