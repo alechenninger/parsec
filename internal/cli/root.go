@@ -27,7 +27,7 @@ Both services issue transaction tokens following the draft-ietf-oauth-transactio
 	}
 
 	// Global flags available to all commands
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: ./configs/parsec.yaml)")
+	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (if not provided, uses PARSEC_CONFIG env var or env vars/flags only)")
 
 	// Add subcommands
 	rootCmd.AddCommand(NewServeCmd())

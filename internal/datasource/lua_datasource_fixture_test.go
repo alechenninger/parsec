@@ -50,8 +50,11 @@ end
 		Name:   "test",
 		Script: script,
 		HTTPConfig: &luaservices.HTTPServiceConfig{
-			Timeout:         5 * time.Second,
-			FixtureProvider: provider,
+			Timeout: 5 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: provider,
+				Strict:   true,
+			}),
 		},
 	})
 	if err != nil {
@@ -134,8 +137,11 @@ end
 		Name:   "test",
 		Script: script,
 		HTTPConfig: &luaservices.HTTPServiceConfig{
-			Timeout:         5 * time.Second,
-			FixtureProvider: provider,
+			Timeout: 5 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: provider,
+				Strict:   true,
+			}),
 		},
 	})
 	if err != nil {
@@ -222,8 +228,11 @@ end
 		Name:   "test",
 		Script: script,
 		HTTPConfig: &luaservices.HTTPServiceConfig{
-			Timeout:         5 * time.Second,
-			FixtureProvider: provider,
+			Timeout: 5 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: provider,
+				Strict:   true,
+			}),
 		},
 	})
 	if err != nil {
@@ -312,8 +321,11 @@ end
 		Name:   "test",
 		Script: script,
 		HTTPConfig: &luaservices.HTTPServiceConfig{
-			Timeout:         5 * time.Second,
-			FixtureProvider: provider,
+			Timeout: 5 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: provider,
+				Strict:   true,
+			}),
 		},
 	})
 	if err != nil {
@@ -428,8 +440,11 @@ end
 		Name:   "test",
 		Script: script,
 		HTTPConfig: &luaservices.HTTPServiceConfig{
-			Timeout:         5 * time.Second,
-			FixtureProvider: provider,
+			Timeout: 5 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: provider,
+				Strict:   true,
+			}),
 		},
 		CacheKeyFunc: "cache_key",
 		CacheTTL:     10 * time.Minute,

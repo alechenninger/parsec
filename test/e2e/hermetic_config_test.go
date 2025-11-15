@@ -150,8 +150,11 @@ function fetch(input)
     return nil
 end`,
 		HTTPConfig: &lua.HTTPServiceConfig{
-			Timeout:         30 * time.Second,
-			FixtureProvider: allFixtures,
+			Timeout: 30 * time.Second,
+			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
+				Provider: allFixtures,
+				Strict:   true,
+			}),
 		},
 	})
 	if err != nil {

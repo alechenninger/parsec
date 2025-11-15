@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/alechenninger/parsec/internal/httpfixture"
 	"github.com/alechenninger/parsec/internal/server"
@@ -20,7 +21,7 @@ type Provider struct {
 	issuerRegistry       service.Registry
 	claimsFilterRegistry server.ClaimsFilterRegistry
 	tokenService         *service.TokenService
-	httpFixtureProvider  *httpfixture.CompositeFixtureProvider
+	httpFixtureProvider  httpfixture.FixtureProvider
 	httpFixtureBuilt     bool
 	observer             service.ApplicationObserver
 }
@@ -54,8 +55,8 @@ func (p *Provider) TrustStore() (trust.Store, error) {
 		return p.trustStore, nil
 	}
 
-	httpProvider := p.HTTPFixtureProvider()
-	store, err := NewTrustStore(p.config.TrustStore, httpProvider)
+	transport := p.HTTPTransport()
+	store, err := NewTrustStore(p.config.TrustStore, transport)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trust store: %w", err)
 	}
@@ -70,8 +71,8 @@ func (p *Provider) DataSourceRegistry() (*service.DataSourceRegistry, error) {
 		return p.dataSourceRegistry, nil
 	}
 
-	httpProvider := p.HTTPFixtureProvider()
-	registry, err := NewDataSourceRegistry(p.config.DataSources, httpProvider)
+	transport := p.HTTPTransport()
+	registry, err := NewDataSourceRegistry(p.config.DataSources, transport)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create data source registry: %w", err)
 	}
@@ -164,11 +165,22 @@ func (p *Provider) TrustDomain() string {
 	return p.config.TrustDomain
 }
 
-// HTTPFixtureProvider returns the composite fixture provider for hermetic testing
+// HTTPTransport returns an HTTP RoundTripper configured with fixtures if available
+// Returns nil if no special transport is needed (caller should use http.DefaultTransport)
+func (p *Provider) HTTPTransport() http.RoundTripper {
+	fixtureProvider := p.HTTPFixtureProvider()
+	if fixtureProvider == nil {
+		return nil
+	}
+	return httpfixture.NewTransport(httpfixture.TransportConfig{
+		Provider: fixtureProvider,
+		Strict:   true,
+	})
+}
+
+// HTTPFixtureProvider returns the fixture provider for hermetic testing
 // Returns nil if no fixtures are configured (normal production mode)
-// The returned provider implements FixtureProvider for HTTP request handling
-// and provides JWKSFixture(issuer) for direct access to JWKS fixtures in tests
-func (p *Provider) HTTPFixtureProvider() *httpfixture.CompositeFixtureProvider {
+func (p *Provider) HTTPFixtureProvider() httpfixture.FixtureProvider {
 	if p.httpFixtureBuilt {
 		return p.httpFixtureProvider
 	}

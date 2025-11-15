@@ -28,14 +28,15 @@ The server will:
 Configuration precedence (highest to lowest):
   1. Command-line flags
   2. Environment variables (PARSEC_*)
-  3. Configuration file`,
+  3. Configuration file (if --config or PARSEC_CONFIG is set)
+  4. Built-in defaults`,
 		RunE: runServe,
 	}
 
 	// Server flags
-	cmd.Flags().Int("grpc-port", 0, "gRPC server port (default: from config or 9090)")
-	cmd.Flags().Int("http-port", 0, "HTTP server port (default: from config or 8080)")
-	cmd.Flags().String("trust-domain", "", "trust domain for issued tokens (default: from config)")
+	cmd.Flags().Int("grpc-port", 0, "gRPC server port (default: 9090)")
+	cmd.Flags().Int("http-port", 0, "HTTP server port (default: 8080)")
+	cmd.Flags().String("trust-domain", "", "trust domain for issued tokens (default: parsec.local)")
 
 	return cmd
 }
@@ -50,10 +51,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		// Check environment variable
 		configPath = os.Getenv("PARSEC_CONFIG")
 	}
-	if configPath == "" {
-		// Default
-		configPath = "./configs/parsec.yaml"
-	}
+	// If still empty, configPath remains empty and we'll use env vars/flags only
 
 	// 2. Load configuration (file + env vars + flags)
 	loader, err := config.NewLoaderWithFlags(configPath, cmd.Flags())

@@ -9,6 +9,7 @@ import (
 	"github.com/knadh/koanf/parsers/json"
 	"github.com/knadh/koanf/parsers/toml/v2"
 	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/confmap"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
@@ -28,35 +29,59 @@ type Loader struct {
 //
 // The file format (YAML, JSON, or TOML) is auto-detected from the extension.
 // Environment variables like PARSEC_SERVER__GRPC_PORT map to server.grpc_port
+// If configPath is empty, only environment variables and defaults will be loaded.
 //
-// Configuration precedence: env vars > config file
+// Configuration precedence (highest to lowest):
+//  1. Environment variables (PARSEC_*)
+//  2. Configuration file (if provided)
+//  3. Built-in defaults
 func NewLoader(configPath string) (*Loader, error) {
 	return newLoader(configPath, nil)
 }
 
 // NewLoaderWithFlags creates a new configuration loader with command-line flag support.
+// If configPath is empty, only environment variables, flags, and defaults will be loaded.
 //
 // Configuration precedence (highest to lowest):
 //  1. Command-line flags
 //  2. Environment variables (PARSEC_*)
-//  3. Configuration file
+//  3. Configuration file (if provided)
+//  4. Built-in defaults
 func NewLoaderWithFlags(configPath string, flags *pflag.FlagSet) (*Loader, error) {
 	return newLoader(configPath, flags)
+}
+
+// getDefaults returns the default configuration values
+func getDefaults() map[string]interface{} {
+	return map[string]interface{}{
+		"server.grpc_port": 9090,
+		"server.http_port": 8080,
+		"trust_domain":     "parsec.local",
+		"trust_store.type": "stub_store",
+	}
 }
 
 // newLoader is the internal loader implementation
 func newLoader(configPath string, flags *pflag.FlagSet) (*Loader, error) {
 	k := koanf.New(".")
 
-	// Auto-detect parser based on file extension
-	parser, err := getParserForFile(configPath)
-	if err != nil {
-		return nil, err
+	// Load defaults (lowest precedence)
+	if err := k.Load(confmap.Provider(getDefaults(), "."), nil); err != nil {
+		return nil, fmt.Errorf("failed to load defaults: %w", err)
 	}
 
-	// Load from file
-	if err := k.Load(file.Provider(configPath), parser); err != nil {
-		return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
+	// Load from file if provided
+	if configPath != "" {
+		// Auto-detect parser based on file extension
+		parser, err := getParserForFile(configPath)
+		if err != nil {
+			return nil, err
+		}
+
+		// Load from file
+		if err := k.Load(file.Provider(configPath), parser); err != nil {
+			return nil, fmt.Errorf("failed to load config file %s: %w", configPath, err)
+		}
 	}
 
 	// Load environment variable overrides with PARSEC_ prefix
@@ -103,7 +128,14 @@ func (l *Loader) Get() (*Config, error) {
 // This runs until the context is cancelled or an error occurs.
 //
 // Note: Not all components can be safely hot-reloaded. Use with caution in production.
+// If no config file is configured, this will block until context is cancelled.
 func (l *Loader) Watch(ctx context.Context, onChange func(*Config) error) error {
+	// If no config file, just block until cancelled
+	if l.configPath == "" {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+
 	// Use file provider with watch enabled
 	fp := file.Provider(l.configPath)
 

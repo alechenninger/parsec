@@ -2,21 +2,21 @@ package config
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/alechenninger/parsec/internal/datasource"
-	"github.com/alechenninger/parsec/internal/httpfixture"
 	luaservices "github.com/alechenninger/parsec/internal/lua"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
 // NewDataSourceRegistry creates a data source registry from configuration
-func NewDataSourceRegistry(cfg []DataSourceConfig, httpProvider httpfixture.FixtureProvider) (*service.DataSourceRegistry, error) {
+func NewDataSourceRegistry(cfg []DataSourceConfig, transport http.RoundTripper) (*service.DataSourceRegistry, error) {
 	registry := service.NewDataSourceRegistry()
 
 	for _, dsCfg := range cfg {
-		ds, err := newDataSource(dsCfg, httpProvider)
+		ds, err := newDataSource(dsCfg, transport)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create data source %s: %w", dsCfg.Name, err)
 		}
@@ -27,17 +27,17 @@ func NewDataSourceRegistry(cfg []DataSourceConfig, httpProvider httpfixture.Fixt
 }
 
 // newDataSource creates a data source from configuration
-func newDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProvider) (service.DataSource, error) {
+func newDataSource(cfg DataSourceConfig, transport http.RoundTripper) (service.DataSource, error) {
 	switch cfg.Type {
 	case "lua":
-		return newLuaDataSource(cfg, httpProvider)
+		return newLuaDataSource(cfg, transport)
 	default:
 		return nil, fmt.Errorf("unknown data source type: %s (supported: lua)", cfg.Type)
 	}
 }
 
 // newLuaDataSource creates a Lua data source with optional caching
-func newLuaDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProvider) (service.DataSource, error) {
+func newLuaDataSource(cfg DataSourceConfig, transport http.RoundTripper) (service.DataSource, error) {
 	if cfg.Name == "" {
 		return nil, fmt.Errorf("data source name is required")
 	}
@@ -65,7 +65,7 @@ func newLuaDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProv
 	// Build HTTP config
 	var httpConfig *luaservices.HTTPServiceConfig
 	if cfg.HTTPConfig != nil {
-		httpCfg, err := buildHTTPConfig(cfg.HTTPConfig, httpProvider)
+		httpCfg, err := buildHTTPConfig(cfg.HTTPConfig, transport)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP config: %w", err)
 		}
@@ -94,7 +94,7 @@ func newLuaDataSource(cfg DataSourceConfig, httpProvider httpfixture.FixtureProv
 }
 
 // buildHTTPConfig creates an HTTPServiceConfig from the config structure
-func buildHTTPConfig(cfg *HTTPConfig, httpProvider httpfixture.FixtureProvider) (*luaservices.HTTPServiceConfig, error) {
+func buildHTTPConfig(cfg *HTTPConfig, transport http.RoundTripper) (*luaservices.HTTPServiceConfig, error) {
 	httpServiceCfg := &luaservices.HTTPServiceConfig{}
 
 	// Parse timeout
@@ -108,9 +108,9 @@ func buildHTTPConfig(cfg *HTTPConfig, httpProvider httpfixture.FixtureProvider) 
 		httpServiceCfg.Timeout = 30 * time.Second // default
 	}
 
-	// Use the provided HTTP fixture provider (from top-level config)
-	if httpProvider != nil {
-		httpServiceCfg.FixtureProvider = httpProvider
+	// Use the provided HTTP transport (from top-level config)
+	if transport != nil {
+		httpServiceCfg.Transport = transport
 	}
 
 	return httpServiceCfg, nil

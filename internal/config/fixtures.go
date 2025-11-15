@@ -11,9 +11,8 @@ import (
 
 // BuildHTTPFixtureProvider creates a composite HTTP fixture provider from fixture configurations
 // Returns nil if no fixtures are configured (normal production mode)
-// The returned CompositeFixtureProvider provides both HTTP fixture serving and direct access
-// to JWKS fixtures by issuer for test token signing
-func BuildHTTPFixtureProvider(fixtures []FixtureConfig, clk clock.Clock) (*httpfixture.CompositeFixtureProvider, error) {
+// The returned FixtureProvider provides HTTP fixture serving
+func BuildHTTPFixtureProvider(fixtures []FixtureConfig, clk clock.Clock) (httpfixture.FixtureProvider, error) {
 	if len(fixtures) == 0 {
 		return nil, nil
 	}
@@ -79,13 +78,8 @@ func BuildHTTPFixtureProvider(fixtures []FixtureConfig, clk clock.Clock) (*httpf
 		jwksFixtures[f.Issuer] = jwksFixture
 	}
 
-	// No fixtures configured
-	if len(rules) == 0 && len(jwksFixtures) == 0 {
-		return nil, nil
-	}
-
-	// Build list of providers to compose
-	var providers []httpfixture.FixtureProvider
+	// Build list of providers to compose (always return non-nil, even if empty)
+	providers := make([]httpfixture.FixtureProvider, 0)
 
 	if len(rules) > 0 {
 		providers = append(providers, httpfixture.NewRuleBasedProvider(rules))
@@ -95,5 +89,6 @@ func BuildHTTPFixtureProvider(fixtures []FixtureConfig, clk clock.Clock) (*httpf
 		providers = append(providers, jwks)
 	}
 
+	// Always return a valid CompositeFixtureProvider, even if empty
 	return httpfixture.NewCompositeFixtureProvider(providers, jwksFixtures), nil
 }
