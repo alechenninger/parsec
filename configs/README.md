@@ -33,24 +33,41 @@ Override specific configuration values via command-line flags (highest precedenc
 ./bin/parsec serve --config=/etc/parsec/config.yaml
 
 # Override server ports
-./bin/parsec serve --grpc-port=9091 --http-port=8081
+./bin/parsec serve --server-grpc-port=9091 --server-http-port=8081
 
 # Override trust domain
 ./bin/parsec serve --trust-domain=prod.example.com
 
 # Combine multiple overrides
-./bin/parsec serve --config=./my-config.yaml --grpc-port=9091 --trust-domain=prod.example.com
+./bin/parsec serve --config=./my-config.yaml --server-grpc-port=9091 --trust-domain=prod.example.com
+
+# Override observability settings
+./bin/parsec serve --observability-type=logging --observability-log-level=debug
+
+# Override trust store type
+./bin/parsec serve --trust-store-type=filtered_store
 ```
 
-Available flags for `serve` command:
-- `--config, -c` - Config file path (default: `./configs/parsec.yaml`)
-- `--grpc-port` - gRPC server port (overrides `server.grpc_port`)
-- `--http-port` - HTTP server port (overrides `server.http_port`)
-- `--trust-domain` - Trust domain for issued tokens (overrides `trust_domain`)
+**Flag Naming Convention:**
 
-View all commands and flags:
+All configuration options have corresponding command-line flags. Flag names are derived from the config file structure:
+- Config path: `server.grpc_port` → Flag: `--server-grpc-port`
+- Config path: `trust_domain` → Flag: `--trust-domain`
+- Config path: `observability.log_level` → Flag: `--observability-log-level`
+
+The conversion rule: replace dots (`.`) and underscores (`_`) with hyphens (`-`).
+
+**Common flags:**
+- `--config, -c` - Config file path
+- `--server-grpc-port` - gRPC server port (overrides `server.grpc_port`)
+- `--server-http-port` - HTTP server port (overrides `server.http_port`)
+- `--trust-domain` - Trust domain for issued tokens (overrides `trust_domain`)
+- `--trust-store-type` - Trust store type (overrides `trust_store.type`)
+- `--observability-type` - Observability type: logging, noop, composite
+- `--observability-log-level` - Log level: debug, info, warn, error
+
+View all available flags:
 ```bash
-./bin/parsec --help
 ./bin/parsec serve --help
 ```
 
@@ -377,7 +394,7 @@ Result: gRPC on port 9091, everything else from config
 # Config has grpc_port: 9090
 # Env var sets it to 9091
 # Flag overrides both to 9092
-PARSEC_SERVER__GRPC_PORT=9091 ./bin/parsec serve --grpc-port=9092
+PARSEC_SERVER__GRPC_PORT=9091 ./bin/parsec serve --server-grpc-port=9092
 ```
 Result: gRPC on port 9092 (flag wins)
 
@@ -395,7 +412,7 @@ trust_domain: "prod.example.com"
 PARSEC_TRUST_DOMAIN=prod-us.example.com \
   ./bin/parsec serve \
   --config=./configs/prod.yaml \
-  --http-port=8081
+  --server-http-port=8081
 ```
 
 Result:
@@ -433,9 +450,10 @@ Error: failed to parse config: ...
 
 **Issue**: Flag values not being applied
 
-**Solution**: Ensure you're using the `serve` command:
-- `./bin/parsec serve --grpc-port=9091` (correct)
-- `./bin/parsec --grpc-port=9091` (wrong - flags are command-specific)
+**Solution**: Ensure you're using the `serve` command and correct flag names:
+- `./bin/parsec serve --server-grpc-port=9091` (correct)
+- `./bin/parsec --server-grpc-port=9091` (wrong - flags are command-specific)
+- `./bin/parsec serve --grpc-port=9091` (wrong - old flag name, use --server-grpc-port)
 
 ## Further Reading
 

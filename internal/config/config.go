@@ -7,7 +7,7 @@ type Config struct {
 
 	// TrustDomain is the trust domain for this parsec instance
 	// Used as the audience for all issued tokens
-	TrustDomain string `koanf:"trust_domain"`
+	TrustDomain string `koanf:"trust_domain" usage:"trust domain for issued tokens (audience claim)"`
 
 	// AuthzServer configuration for ext_authz service
 	AuthzServer *AuthzServerConfig `koanf:"authz_server"`
@@ -34,10 +34,10 @@ type Config struct {
 // ServerConfig contains network-level server settings
 type ServerConfig struct {
 	// GRPCPort is the port for gRPC services (ext_authz, token exchange)
-	GRPCPort int `koanf:"grpc_port"`
+	GRPCPort int `koanf:"grpc_port" usage:"gRPC server port (ext_authz, token exchange)"`
 
 	// HTTPPort is the port for HTTP services (gRPC-gateway transcoding)
-	HTTPPort int `koanf:"http_port"`
+	HTTPPort int `koanf:"http_port" usage:"HTTP server port (gRPC-gateway transcoding)"`
 }
 
 // AuthzServerConfig configures the ext_authz authorization server
@@ -70,7 +70,7 @@ type ExchangeServerConfig struct {
 type TrustStoreConfig struct {
 	// Type selects the trust store implementation
 	// Options: "stub_store", "filtered_store"
-	Type string `koanf:"type"`
+	Type string `koanf:"type" usage:"trust store type: stub_store, filtered_store"`
 
 	// Validators is the list of validators to add to the store
 	Validators []NamedValidatorConfig `koanf:"validators"`
@@ -111,10 +111,10 @@ type ValidatorConfig struct {
 type ValidatorFilterConfig struct {
 	// Type selects the filter implementation
 	// Options: "cel", "any", "passthrough"
-	Type string `koanf:"type"`
+	Type string `koanf:"type" usage:"validator filter type: cel, any, passthrough"`
 
 	// CEL filter fields
-	Script string `koanf:"script"`
+	Script string `koanf:"script" usage:"CEL script for validator filtering"`
 
 	// Any filter fields (composite filter - allows if any sub-filter allows)
 	Filters []ValidatorFilterConfig `koanf:"filters"`
@@ -227,10 +227,10 @@ type KeyManagerConfig struct {
 type ClaimsFilterConfig struct {
 	// Type selects the filter registry implementation
 	// Options: "stub", "cel", "allowlist"
-	Type string `koanf:"type"`
+	Type string `koanf:"type" usage:"claims filter type: stub, cel, allowlist"`
 
 	// CEL-based filter
-	Script string `koanf:"script"`
+	Script string `koanf:"script" usage:"CEL script for claims filtering"`
 
 	// Allowlist-based filter
 	AllowedClaims []string `koanf:"allowed_claims"`
@@ -288,17 +288,17 @@ type FixtureResponse struct {
 type ObservabilityConfig struct {
 	// Type selects the observer implementation
 	// Options: "logging", "noop", "composite"
-	Type string `koanf:"type"`
+	Type string `koanf:"type" usage:"observer type: logging, noop, composite"`
 
 	// LogLevel sets the default log level for logging observer
 	// Options: "debug", "info", "warn", "error"
 	// Default: "info"
-	LogLevel string `koanf:"log_level"`
+	LogLevel string `koanf:"log_level" usage:"default log level: debug, info, warn, error"`
 
 	// LogFormat sets the log format
 	// Options: "json", "text"
 	// Default: "json"
-	LogFormat string `koanf:"log_format"`
+	LogFormat string `koanf:"log_format" usage:"log format: json, text"`
 
 	// Event-specific logging configuration
 	TokenIssuance *EventLoggingConfig `koanf:"token_issuance"`
@@ -313,13 +313,13 @@ type ObservabilityConfig struct {
 type EventLoggingConfig struct {
 	// LogLevel overrides the default log level for this event
 	// Options: "debug", "info", "warn", "error"
-	LogLevel string `koanf:"log_level"`
+	LogLevel string `koanf:"log_level" usage:"event-specific log level: debug, info, warn, error"`
 
 	// LogFormat overrides the default log format for this event
 	// Options: "json", "text"
-	LogFormat string `koanf:"log_format"`
+	LogFormat string `koanf:"log_format" usage:"event-specific log format: json, text"`
 
 	// Enabled controls whether this event type is logged
 	// Default: true
-	Enabled *bool `koanf:"enabled"`
+	Enabled *bool `koanf:"enabled" usage:"enable/disable logging for this event type"`
 }

@@ -93,17 +93,23 @@ func newLoader(configPath string, flags *pflag.FlagSet) (*Loader, error) {
 
 	// Load command-line flags (highest precedence)
 	if flags != nil {
-		// Map flag names to config keys
-		// grpc-port -> server.grpc_port
-		// http-port -> server.http_port
-		// trust-domain -> trust_domain
-		if err := k.Load(posflag.ProviderWithFlag(flags, ".", k, func(f *pflag.Flag) (string, interface{}) {
-			key := flagToConfigKey(f.Name)
+		// Build mapping from flag names to config keys
+		flagMapping := GetFlagMapping()
+
+		if err := k.Load(posflag.ProviderWithFlag(flags, ".", k, func(f *pflag.Flag) (string, any) {
+			// Look up the config key for this flag
+			configKey, ok := flagMapping[f.Name]
+			if !ok {
+				// Not a valid config flag, skip it
+				return "", nil
+			}
+
 			// Only override if the flag was explicitly set
 			if !f.Changed {
 				return "", nil
 			}
-			return key, posflag.FlagVal(flags, f)
+
+			return configKey, posflag.FlagVal(flags, f)
 		}), nil); err != nil {
 			return nil, fmt.Errorf("failed to load command-line flags: %w", err)
 		}
@@ -219,24 +225,4 @@ func envTransform(s string) string {
 	// Replace double underscore with dot for nesting
 	s = strings.ReplaceAll(s, "__", ".")
 	return s
-}
-
-// flagToConfigKey maps command-line flag names to config keys
-// Examples:
-//
-//	grpc-port -> server.grpc_port
-//	http-port -> server.http_port
-//	trust-domain -> trust_domain
-func flagToConfigKey(flagName string) string {
-	switch flagName {
-	case "grpc-port":
-		return "server.grpc_port"
-	case "http-port":
-		return "server.http_port"
-	case "trust-domain":
-		return "trust_domain"
-	default:
-		// Default: replace hyphens with underscores
-		return strings.ReplaceAll(flagName, "-", "_")
-	}
 }

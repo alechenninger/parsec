@@ -29,14 +29,28 @@ Configuration precedence (highest to lowest):
   1. Command-line flags
   2. Environment variables (PARSEC_*)
   3. Configuration file (if --config or PARSEC_CONFIG is set)
-  4. Built-in defaults`,
+  4. Built-in defaults
+
+Examples:
+  # Start with default settings
+  parsec serve
+
+  # Override server ports
+  parsec serve --server-grpc-port 9091 --server-http-port 8081
+
+  # Override trust domain
+  parsec serve --trust-domain prod.example.com
+
+  # Use custom config file
+  parsec serve --config /etc/parsec/config.yaml
+
+  # Combine multiple overrides
+  parsec serve --config ./my-config.yaml --server-grpc-port 9091`,
 		RunE: runServe,
 	}
 
-	// Server flags
-	cmd.Flags().Int("grpc-port", 0, "gRPC server port (default: 9090)")
-	cmd.Flags().Int("http-port", 0, "HTTP server port (default: 8080)")
-	cmd.Flags().String("trust-domain", "", "trust domain for issued tokens (default: parsec.local)")
+	// Auto-register all config flags
+	config.RegisterFlags(cmd.Flags())
 
 	return cmd
 }
