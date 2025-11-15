@@ -98,9 +98,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get issuer registry: %w", err)
 	}
 
-	// 6. Create service handlers
-	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes, nil)
-	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, nil)
+	// Get observer for observability
+	observer, err := provider.Observer()
+	if err != nil {
+		return fmt.Errorf("failed to get observer: %w", err)
+	}
+
+	// 6. Create service handlers with observability
+	authzServer := server.NewAuthzServer(trustStore, tokenService, authzTokenTypes, observer)
+	exchangeServer := server.NewExchangeServer(trustStore, tokenService, claimsFilterRegistry, observer)
 	jwksServer := server.NewJWKSServer(server.JWKSServerConfig{
 		IssuerRegistry: issuerRegistry,
 		// Use default refresh interval (1 minute)

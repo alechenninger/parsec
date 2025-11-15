@@ -22,6 +22,7 @@ type Provider struct {
 	tokenService         *service.TokenService
 	httpFixtureProvider  *httpfixture.CompositeFixtureProvider
 	httpFixtureBuilt     bool
+	observer             service.ApplicationObserver
 }
 
 // NewProvider creates a new provider from configuration
@@ -29,6 +30,22 @@ func NewProvider(config *Config) *Provider {
 	return &Provider{
 		config: config,
 	}
+}
+
+// Observer returns the configured application observer
+func (p *Provider) Observer() (service.ApplicationObserver, error) {
+	if p.observer != nil {
+		return p.observer, nil
+	}
+
+	// Build from config
+	observer, err := NewObserver(p.config.Observability)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create observer: %w", err)
+	}
+
+	p.observer = observer
+	return observer, nil
 }
 
 // TrustStore returns the configured trust store
@@ -116,12 +133,18 @@ func (p *Provider) TokenService() (*service.TokenService, error) {
 		return nil, err
 	}
 
+	// Get observer
+	observer, err := p.Observer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get observer: %w", err)
+	}
+
 	// Create token service
 	tokenService := service.NewTokenService(
 		p.config.TrustDomain,
 		dataSourceRegistry,
 		issuerRegistry,
-		nil, // TODO: Add probe configuration
+		observer, // Application observer for observability
 	)
 
 	p.tokenService = tokenService

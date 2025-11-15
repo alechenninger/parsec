@@ -123,12 +123,12 @@ type ApplicationObserver interface {
 // compositeObserver delegates to multiple observers in order.
 // Useful for combining logging, metrics, and tracing.
 type compositeObserver struct {
-	observers []TokenServiceObserver
+	observers []ApplicationObserver
 }
 
 // NewCompositeObserver creates an observer that delegates to multiple observers.
 // Observers are called in the order provided.
-func NewCompositeObserver(observers ...TokenServiceObserver) TokenServiceObserver {
+func NewCompositeObserver(observers ...ApplicationObserver) ApplicationObserver {
 	return &compositeObserver{observers: observers}
 }
 
@@ -143,39 +143,163 @@ func (c *compositeObserver) TokenIssuanceStarted(
 	for i, obs := range c.observers {
 		ctx, probes[i] = obs.TokenIssuanceStarted(ctx, subject, actor, scope, tokenTypes)
 	}
-	return ctx, &compositeProbe{probes: probes}
+	return ctx, &compositeTokenIssuanceProbe{probes: probes}
 }
 
-// compositeProbe delegates to multiple probes in order.
-type compositeProbe struct {
+func (c *compositeObserver) TokenExchangeStarted(
+	ctx context.Context,
+	grantType string,
+	requestedTokenType string,
+	audience string,
+	scope string,
+) (context.Context, TokenExchangeProbe) {
+	probes := make([]TokenExchangeProbe, len(c.observers))
+	for i, obs := range c.observers {
+		ctx, probes[i] = obs.TokenExchangeStarted(ctx, grantType, requestedTokenType, audience, scope)
+	}
+	return ctx, &compositeTokenExchangeProbe{probes: probes}
+}
+
+func (c *compositeObserver) AuthzCheckStarted(
+	ctx context.Context,
+) (context.Context, AuthzCheckProbe) {
+	probes := make([]AuthzCheckProbe, len(c.observers))
+	for i, obs := range c.observers {
+		ctx, probes[i] = obs.AuthzCheckStarted(ctx)
+	}
+	return ctx, &compositeAuthzCheckProbe{probes: probes}
+}
+
+// compositeTokenIssuanceProbe delegates to multiple probes in order.
+type compositeTokenIssuanceProbe struct {
 	probes []TokenIssuanceProbe
 }
 
-func (c *compositeProbe) TokenTypeIssuanceStarted(tokenType TokenType) {
+func (c *compositeTokenIssuanceProbe) TokenTypeIssuanceStarted(tokenType TokenType) {
 	for _, probe := range c.probes {
 		probe.TokenTypeIssuanceStarted(tokenType)
 	}
 }
 
-func (c *compositeProbe) TokenTypeIssuanceSucceeded(tokenType TokenType, token *Token) {
+func (c *compositeTokenIssuanceProbe) TokenTypeIssuanceSucceeded(tokenType TokenType, token *Token) {
 	for _, probe := range c.probes {
 		probe.TokenTypeIssuanceSucceeded(tokenType, token)
 	}
 }
 
-func (c *compositeProbe) TokenTypeIssuanceFailed(tokenType TokenType, err error) {
+func (c *compositeTokenIssuanceProbe) TokenTypeIssuanceFailed(tokenType TokenType, err error) {
 	for _, probe := range c.probes {
 		probe.TokenTypeIssuanceFailed(tokenType, err)
 	}
 }
 
-func (c *compositeProbe) IssuerNotFound(tokenType TokenType, err error) {
+func (c *compositeTokenIssuanceProbe) IssuerNotFound(tokenType TokenType, err error) {
 	for _, probe := range c.probes {
 		probe.IssuerNotFound(tokenType, err)
 	}
 }
 
-func (c *compositeProbe) End() {
+func (c *compositeTokenIssuanceProbe) End() {
+	for _, probe := range c.probes {
+		probe.End()
+	}
+}
+
+// compositeTokenExchangeProbe delegates to multiple TokenExchangeProbe instances
+type compositeTokenExchangeProbe struct {
+	probes []TokenExchangeProbe
+}
+
+func (c *compositeTokenExchangeProbe) ActorValidationSucceeded(actor *trust.Result) {
+	for _, probe := range c.probes {
+		probe.ActorValidationSucceeded(actor)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) ActorValidationFailed(err error) {
+	for _, probe := range c.probes {
+		probe.ActorValidationFailed(err)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) RequestContextParsed(attrs *request.RequestAttributes) {
+	for _, probe := range c.probes {
+		probe.RequestContextParsed(attrs)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) RequestContextParseFailed(err error) {
+	for _, probe := range c.probes {
+		probe.RequestContextParseFailed(err)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) SubjectTokenValidationSucceeded(subject *trust.Result) {
+	for _, probe := range c.probes {
+		probe.SubjectTokenValidationSucceeded(subject)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) SubjectTokenValidationFailed(err error) {
+	for _, probe := range c.probes {
+		probe.SubjectTokenValidationFailed(err)
+	}
+}
+
+func (c *compositeTokenExchangeProbe) End() {
+	for _, probe := range c.probes {
+		probe.End()
+	}
+}
+
+// compositeAuthzCheckProbe delegates to multiple AuthzCheckProbe instances
+type compositeAuthzCheckProbe struct {
+	probes []AuthzCheckProbe
+}
+
+func (c *compositeAuthzCheckProbe) RequestAttributesParsed(attrs *request.RequestAttributes) {
+	for _, probe := range c.probes {
+		probe.RequestAttributesParsed(attrs)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) ActorValidationSucceeded(actor *trust.Result) {
+	for _, probe := range c.probes {
+		probe.ActorValidationSucceeded(actor)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) ActorValidationFailed(err error) {
+	for _, probe := range c.probes {
+		probe.ActorValidationFailed(err)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) SubjectCredentialExtracted(cred trust.Credential, headersUsed []string) {
+	for _, probe := range c.probes {
+		probe.SubjectCredentialExtracted(cred, headersUsed)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) SubjectCredentialExtractionFailed(err error) {
+	for _, probe := range c.probes {
+		probe.SubjectCredentialExtractionFailed(err)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) SubjectValidationSucceeded(subject *trust.Result) {
+	for _, probe := range c.probes {
+		probe.SubjectValidationSucceeded(subject)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) SubjectValidationFailed(err error) {
+	for _, probe := range c.probes {
+		probe.SubjectValidationFailed(err)
+	}
+}
+
+func (c *compositeAuthzCheckProbe) End() {
 	for _, probe := range c.probes {
 		probe.End()
 	}

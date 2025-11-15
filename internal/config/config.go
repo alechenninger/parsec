@@ -26,6 +26,9 @@ type Config struct {
 
 	// Fixtures for hermetic testing (HTTP rules, etc.)
 	Fixtures []FixtureConfig `koanf:"fixtures"`
+
+	// Observability configuration (logging, metrics, tracing)
+	Observability *ObservabilityConfig `koanf:"observability"`
 }
 
 // ServerConfig contains network-level server settings
@@ -279,4 +282,44 @@ type FixtureResponse struct {
 
 	// Body is the response body content
 	Body string `koanf:"body"`
+}
+
+// ObservabilityConfig configures application observability
+type ObservabilityConfig struct {
+	// Type selects the observer implementation
+	// Options: "logging", "noop", "composite"
+	Type string `koanf:"type"`
+
+	// LogLevel sets the default log level for logging observer
+	// Options: "debug", "info", "warn", "error"
+	// Default: "info"
+	LogLevel string `koanf:"log_level"`
+
+	// LogFormat sets the log format
+	// Options: "json", "text"
+	// Default: "json"
+	LogFormat string `koanf:"log_format"`
+
+	// Event-specific logging configuration
+	TokenIssuance *EventLoggingConfig `koanf:"token_issuance"`
+	TokenExchange *EventLoggingConfig `koanf:"token_exchange"`
+	AuthzCheck    *EventLoggingConfig `koanf:"authz_check"`
+
+	// Composite observer fields - allows multiple observers
+	Observers []ObservabilityConfig `koanf:"observers"`
+}
+
+// EventLoggingConfig configures logging for a specific event type
+type EventLoggingConfig struct {
+	// LogLevel overrides the default log level for this event
+	// Options: "debug", "info", "warn", "error"
+	LogLevel string `koanf:"log_level"`
+
+	// LogFormat overrides the default log format for this event
+	// Options: "json", "text"
+	LogFormat string `koanf:"log_format"`
+
+	// Enabled controls whether this event type is logged
+	// Default: true
+	Enabled *bool `koanf:"enabled"`
 }
