@@ -1,5 +1,5 @@
-# Example Parsec configuration showing different KeyManager plugin options
-# This demonstrates how to configure various Spire KeyManager plugins for JWT transaction tokens
+# Example Parsec configuration showing different KeyManager options
+# This demonstrates how to configure key managers for signed JWT transaction tokens
 
 server:
   bind_address: "0.0.0.0:8443"
@@ -10,14 +10,15 @@ server:
 trust_store:
   type: "stub_store"
 
-# Example issuers using different KeyManager plugins
+# Example issuers using different KeyManager types
 issuers:
   # Example 1: In-memory KeyManager (default, good for testing)
+  # Keys are stored in memory and lost on restart
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "5m"
-    # If key_manager_plugin is omitted, defaults to memory KeyManager
+    # If key_manager is omitted, defaults to memory KeyManager
     transaction_context:
       - type: "cel"
         expression: |
@@ -28,17 +29,16 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 2: Disk-based KeyManager (persists keys to disk)
+  # Example 2: Disk-based KeyManager (persists keys to filesystem)
+  # Keys are stored on disk and survive pod restarts
+  # Suitable for single-pod deployments with ReadWriteOnce persistent volumes
   - token_type: "urn:ietf:params:oauth:token-type:access_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "1h"
-    key_manager_plugin: |
-      KeyManager "disk" {
-        plugin_data {
-          keys_path = "/var/lib/parsec/keys"
-        }
-      }
+    key_manager:
+      type: "disk"
+      keys_path: "/var/lib/parsec/keys"
     transaction_context:
       - type: "cel"
         expression: |
@@ -52,25 +52,18 @@ issuers:
 
   # Example 3: AWS KMS KeyManager (uses AWS KMS for signing)
   # Requires AWS credentials to be configured (via env vars, IAM role, etc.)
+  # Keys are managed by AWS KMS and can be rotated through AWS
   - token_type: "urn:x-custom:oauth:token-type:service_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "15m"
-    key_manager_plugin: |
-      KeyManager "awskms" {
-        plugin_data {
-          # AWS region where KMS keys are located
-          region = "us-west-2"
-          
-          # Optional: specify access key ID and secret access key
-          # (better to use IAM roles instead)
-          # access_key_id = "AKIAIOSFODNN7EXAMPLE"
-          # secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-          
-          # Optional: KMS key policy allows spire:CreateKey
-          # key_policy_file = "/path/to/policy.json"
-        }
-      }
+    key_manager:
+      type: "aws_kms"
+      # AWS region where KMS keys are located
+      region: "us-west-2"
+      # KMS alias prefix for key rotation (e.g., "alias/parsec/prod-")
+      # Full alias will be: alias/parsec/prod-<timestamp>
+      alias_prefix: "alias/parsec/prod-"
     transaction_context:
       - type: "cel"
         expression: |
@@ -82,23 +75,16 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 4: Google Cloud KMS KeyManager
-  # Requires GCP credentials to be configured
+  # Example 4: AWS KMS KeyManager with different region
+  # Demonstrates using KMS in a different AWS region
   - token_type: "urn:ietf:params:oauth:token-type:jwt"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "10m"
-    key_manager_plugin: |
-      KeyManager "gcpkms" {
-        plugin_data {
-          # GCP project ID
-          key_identifier_file = "/path/to/project-id.txt"
-          
-          # Optional: specify key ring and location
-          # key_ring = "parsec-keys"
-          # location = "global"
-        }
-      }
+    key_manager:
+      type: "aws_kms"
+      region: "us-east-1"
+      alias_prefix: "alias/parsec/east-"
     transaction_context:
       - type: "cel"
         expression: |
@@ -109,26 +95,16 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 5: Azure Key Vault KeyManager
-  # Requires Azure credentials
+  # Example 5: Another AWS KMS example with custom alias prefix
+  # Can be used for different environments or services
   - token_type: "urn:ietf:params:oauth:token-type:id_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "30m"
-    key_manager_plugin: |
-      KeyManager "azurekeyvault" {
-        plugin_data {
-          # Azure Key Vault name
-          key_vault_uri = "https://my-vault.vault.azure.net/"
-          
-          # Azure tenant ID
-          tenant_id = "00000000-0000-0000-0000-000000000000"
-          
-          # Optional: specify client credentials
-          # client_id = "00000000-0000-0000-0000-000000000000"
-          # client_secret = "secret"
-        }
-      }
+    key_manager:
+      type: "aws_kms"
+      region: "eu-west-1"
+      alias_prefix: "alias/parsec/eu-prod-"
     transaction_context:
       - type: "cel"
         expression: |

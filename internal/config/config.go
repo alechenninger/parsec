@@ -215,12 +215,15 @@ type IssuerConfig struct {
 // KeyManagerConfig configures a key manager
 type KeyManagerConfig struct {
 	// Type selects the key manager implementation
-	// Options: "memory", "aws_kms"
+	// Options: "memory", "aws_kms", "disk"
 	Type string `koanf:"type"`
 
 	// AWS KMS fields
 	Region      string `koanf:"region"`       // AWS region (e.g., "us-east-1")
 	AliasPrefix string `koanf:"alias_prefix"` // KMS alias prefix (e.g., "alias/parsec/")
+
+	// Disk key manager fields
+	KeysPath string `koanf:"keys_path"` // Path to directory for storing keys
 }
 
 // ClaimsFilterConfig configures the claims filter registry

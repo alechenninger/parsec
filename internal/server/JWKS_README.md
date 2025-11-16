@@ -206,12 +206,10 @@ issuers:
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
-    key_manager_plugin: |
-      KeyManager "disk" {
-        plugin_data {
-          keys_path = "/var/lib/parsec/keys"
-        }
-      }
+    key_manager:
+      type: "aws_kms"
+      region: "us-east-1"
+      alias_prefix: "alias/parsec/prod-"
 ```
 
 The JWKS endpoint will automatically serve the public keys from this issuer's key manager.

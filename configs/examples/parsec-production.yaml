@@ -80,6 +80,12 @@ issuers:
     type: transaction_token
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
+    # For production, use AWS KMS for secure key management
+    # Requires AWS credentials (IAM role, env vars, etc.)
+    key_manager:
+      type: "aws_kms"
+      region: "us-east-1"
+      alias_prefix: "alias/parsec/prod-"
     transaction_context:
       - type: "cel"
         expression: |
@@ -90,9 +96,3 @@ issuers:
     request_context:
       - type: "cel"
         expression: "{}"
-    key_manager_plugin: |
-      KeyManager "disk" {
-        plugin_data {
-          keys_path = "/var/lib/parsec/keys"
-        }
-      }

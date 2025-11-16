@@ -138,7 +138,7 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string) (ser
 
 	// Create KeyManager from config
 	var km keymanager.KeyManager
-	
+
 	if cfg.KeyManager == nil || cfg.KeyManager.Type == "" || cfg.KeyManager.Type == "memory" {
 		// Default to in-memory key manager
 		km = keymanager.NewInMemoryKeyManager()
@@ -152,8 +152,20 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string) (ser
 			return nil, fmt.Errorf("failed to create AWS KMS key manager: %w", err)
 		}
 		km = awsKM
+	} else if cfg.KeyManager.Type == "disk" {
+		// Create disk key manager
+		if cfg.KeyManager.KeysPath == "" {
+			return nil, fmt.Errorf("disk key_manager requires keys_path")
+		}
+		diskKM, err := keymanager.NewDiskKeyManager(keymanager.DiskKeyManagerConfig{
+			KeysPath: cfg.KeyManager.KeysPath,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create disk key manager: %w", err)
+		}
+		km = diskKM
 	} else {
-		return nil, fmt.Errorf("unknown key_manager type: %s (supported: memory, aws_kms)", cfg.KeyManager.Type)
+		return nil, fmt.Errorf("unknown key_manager type: %s (supported: memory, aws_kms, disk)", cfg.KeyManager.Type)
 	}
 
 	// Initialize key slot store (in-memory for now)
