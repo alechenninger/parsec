@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -64,10 +65,10 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 	}, nil
 }
 
-// CreateKey creates a new KMS key with the given stable slotID.
-// If an alias with this slotID already exists, it creates a new CMK, updates the alias,
+// CreateKey creates a new KMS key with the given stable namespace and keyName.
+// If an alias with this name already exists, it creates a new CMK, updates the alias,
 // and schedules the old CMK for deletion (7 days).
-func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, slotID string, keyType KeyType) (*Key, error) {
+func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
 	// 1. Create new KMS key (CMK)
 	keySpec, err := keySpecFromKeyType(keyType)
 	if err != nil {
@@ -83,7 +84,7 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, slotID string, keyType
 	}
 
 	newKeyID := aws.ToString(createResp.KeyMetadata.KeyId)
-	aliasName := m.aliasPrefix + slotID
+	aliasName := m.aliasName(namespace, keyName)
 
 	// 2. Get current alias to find old key (if exists)
 	oldKeyID, err := m.getKeyIDFromAlias(ctx, aliasName)
@@ -145,9 +146,9 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, slotID string, keyType
 	}, nil
 }
 
-// GetKey retrieves a key by its stable slotID (resolves alias) for signing operations
-func (m *AWSKMSKeyManager) GetKey(ctx context.Context, slotID string) (*Key, error) {
-	aliasName := m.aliasPrefix + slotID
+// GetKey retrieves a key by its stable namespace and keyName (resolves alias) for signing operations
+func (m *AWSKMSKeyManager) GetKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+	aliasName := m.aliasName(namespace, keyName)
 
 	// Resolve alias to actual KMS key ID
 	actualKeyID, err := m.getKeyIDFromAlias(ctx, aliasName)
@@ -190,6 +191,12 @@ func (m *AWSKMSKeyManager) GetKey(ctx context.Context, slotID string) (*Key, err
 		Algorithm: algorithm,
 		Signer:    signer,
 	}, nil
+}
+
+func (m *AWSKMSKeyManager) aliasName(namespace, keyName string) string {
+	// Sanitize namespace by replacing colons with underscores (colons not allowed in alias names)
+	sanitizedNS := strings.ReplaceAll(namespace, ":", "_")
+	return fmt.Sprintf("%s%s/%s", m.aliasPrefix, sanitizedNS, keyName)
 }
 
 // getKeyIDFromAlias resolves an alias to a KMS key ID

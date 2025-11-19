@@ -12,6 +12,8 @@ import (
 	"github.com/alechenninger/parsec/internal/clock"
 )
 
+const testTokenType = "urn:ietf:params:oauth:token-type:txn_token"
+
 // Helper to create a test RotatingKeyManager with a fake clock and in memory storage
 func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyManager) (*RotatingKeyManager, KeyManager) {
 	if keyManager == nil {
@@ -24,13 +26,20 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 		slotStore = NewInMemoryKeySlotStore()
 	}
 
+	// Create key manager registry
+	kmRegistry := map[string]KeyManager{
+		"test-km": keyManager,
+	}
+
 	// Create rotating key manager with short timings for testing
 	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
-		KeyManager: keyManager,
-		SlotStore:  slotStore,
-		KeyType:    KeyTypeECP256,
-		Algorithm:  "ES256",
-		Clock:      clk,
+		TokenType:          testTokenType, // Test token type
+		KeyManagerID:       "test-km",
+		KeyManagerRegistry: kmRegistry,
+		SlotStore:          slotStore,
+		KeyType:            KeyTypeECP256,
+		Algorithm:          "ES256",
+		Clock:              clk,
 		// Short timings for faster tests
 		KeyTTL:            30 * time.Minute, // Longer to avoid premature expiration
 		RotationThreshold: 8 * time.Minute,  // Rotate when 8m remaining
@@ -83,7 +92,7 @@ func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
 
 	var slotA *KeySlot
 	for _, s := range slots {
-		if s.SlotID == KeyIDA {
+		if s.Position == SlotPositionA {
 			slotA = s
 			break
 		}
@@ -211,7 +220,8 @@ func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, publicKeys3, 1, "expired key should be removed from public keys")
 
-	// Should only have the newer key
+	// Should only have the newer key (which corresponds to key-b slot)
+	// Note: KeyID format is namespace-keyName-counter, so it contains "key-b"
 	assert.Contains(t, publicKeys3[0].KeyID, "key-b", "should have rotated to key-b slot")
 }
 
@@ -327,11 +337,12 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	// Should have 4 key IDs
 	assert.Len(t, keyIDs, 4)
 
-	// Verify they are unique
-	assert.Equal(t, "key-a-1", keyIDs[0], "first key should be key-a-1")
-	assert.Equal(t, "key-b-2", keyIDs[1], "second key should be key-b-2")
-	assert.Equal(t, "key-a-3", keyIDs[2], "third key should be key-a-3")
-	assert.Equal(t, "key-b-4", keyIDs[3], "fourth key should be key-b-4")
+	// Verify they are unique (now scoped with token type, hyphen separated)
+	// Format: namespace-keyName-counter
+	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-a-1", keyIDs[0], "first key should be scoped key-a-1")
+	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-b-2", keyIDs[1], "second key should be scoped key-b-2")
+	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-a-3", keyIDs[2], "third key should be scoped key-a-3")
+	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-b-4", keyIDs[3], "fourth key should be scoped key-b-4")
 }
 
 func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
@@ -357,15 +368,15 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	require.Len(t, slots, 1, "should have 1 slot")
 	require.NotEqual(t, "", version1, "version should not be empty")
 
-	// Find slotA
+	// Find slotA (now unscoped)
 	var slotA *KeySlot
 	for _, s := range slots {
-		if s.SlotID == KeyIDA {
+		if s.Position == SlotPositionA {
 			slotA = s
 			break
 		}
 	}
-	require.NotNil(t, slotA)
+	require.NotNil(t, slotA, "should find slot-a")
 
 	// Test optimistic locking: Save with correct version should succeed
 	slotA.Algorithm = "RS512" // Modify something
@@ -403,8 +414,8 @@ func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	assert.Len(t, publicKeys1, 1)
 
 	// Verify the public key matches what's in the KeyManager
-	// Use slot ID "key-a" since that's what we use now
-	key, err := km.GetKey(ctx, KeyIDA)
+	// Use namespace and keyName
+	key, err := km.GetKey(ctx, testTokenType, "key-a")
 	require.NoError(t, err)
 
 	assert.Equal(t, key.Signer.Public(), publicKeys1[0].Key)

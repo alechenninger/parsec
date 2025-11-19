@@ -10,15 +10,47 @@ server:
 trust_store:
   type: "stub_store"
 
-# Example issuers using different KeyManager types
-issuers:
-  # Example 1: In-memory KeyManager (default, good for testing)
+# Global key manager definitions
+# Key managers can be shared across multiple issuers
+key_managers:
+  # In-memory KeyManager (default, good for testing)
   # Keys are stored in memory and lost on restart
+  - id: "memory-km"
+    type: "memory"
+
+  # Disk-based KeyManager (persists keys to filesystem)
+  # Keys are stored on disk and survive pod restarts
+  - id: "disk-km"
+    type: "disk"
+    keys_path: "/var/lib/parsec/keys"
+
+  # AWS KMS KeyManager for US West region
+  # Requires AWS credentials (via env vars, IAM role, etc.)
+  - id: "kms-us-west"
+    type: "aws_kms"
+    region: "us-west-2"
+    alias_prefix: "alias/parsec/prod-"
+
+  # AWS KMS KeyManager for US East region
+  - id: "kms-us-east"
+    type: "aws_kms"
+    region: "us-east-1"
+    alias_prefix: "alias/parsec/east-"
+
+  # AWS KMS KeyManager for EU region
+  - id: "kms-eu"
+    type: "aws_kms"
+    region: "eu-west-1"
+    alias_prefix: "alias/parsec/eu-prod-"
+
+# Issuers reference key managers by ID
+issuers:
+  # Example 1: Using in-memory KeyManager
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "5m"
-    # If key_manager is omitted, defaults to memory KeyManager
+    key_manager: "memory-km"
     transaction_context:
       - type: "cel"
         expression: |
@@ -29,16 +61,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 2: Disk-based KeyManager (persists keys to filesystem)
-  # Keys are stored on disk and survive pod restarts
-  # Suitable for single-pod deployments with ReadWriteOnce persistent volumes
+  # Example 2: Using disk-based KeyManager
   - token_type: "urn:ietf:params:oauth:token-type:access_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "1h"
-    key_manager:
-      type: "disk"
-      keys_path: "/var/lib/parsec/keys"
+    key_manager: "disk-km"
     transaction_context:
       - type: "cel"
         expression: |
@@ -50,20 +78,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 3: AWS KMS KeyManager (uses AWS KMS for signing)
-  # Requires AWS credentials to be configured (via env vars, IAM role, etc.)
-  # Keys are managed by AWS KMS and can be rotated through AWS
+  # Example 3: Using AWS KMS (US West)
   - token_type: "urn:x-custom:oauth:token-type:service_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "15m"
-    key_manager:
-      type: "aws_kms"
-      # AWS region where KMS keys are located
-      region: "us-west-2"
-      # KMS alias prefix for key rotation (e.g., "alias/parsec/prod-")
-      # Full alias will be: alias/parsec/prod-<timestamp>
-      alias_prefix: "alias/parsec/prod-"
+    key_manager: "kms-us-west"
     transaction_context:
       - type: "cel"
         expression: |
@@ -75,16 +95,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 4: AWS KMS KeyManager with different region
-  # Demonstrates using KMS in a different AWS region
+  # Example 4: Using AWS KMS (US East)
   - token_type: "urn:ietf:params:oauth:token-type:jwt"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "10m"
-    key_manager:
-      type: "aws_kms"
-      region: "us-east-1"
-      alias_prefix: "alias/parsec/east-"
+    key_manager: "kms-us-east"
     transaction_context:
       - type: "cel"
         expression: |
@@ -95,16 +111,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 5: Another AWS KMS example with custom alias prefix
-  # Can be used for different environments or services
+  # Example 5: Using AWS KMS (EU)
   - token_type: "urn:ietf:params:oauth:token-type:id_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "30m"
-    key_manager:
-      type: "aws_kms"
-      region: "eu-west-1"
-      alias_prefix: "alias/parsec/eu-prod-"
+    key_manager: "kms-eu"
     transaction_context:
       - type: "cel"
         expression: |

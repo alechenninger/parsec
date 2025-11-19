@@ -49,10 +49,11 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			slotID := "key-a"
+			ns := "test-ns"
+			keyName := "key-a"
 
 			// Create a key
-			key1, err := km.CreateKey(ctx, slotID, tt.keyType)
+			key1, err := km.CreateKey(ctx, ns, keyName, tt.keyType)
 			if err != nil {
 				t.Fatalf("CreateKey failed: %v", err)
 			}
@@ -70,7 +71,7 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 			}
 
 			// Retrieve the key
-			key2, err := km.GetKey(ctx, slotID)
+			key2, err := km.GetKey(ctx, ns, keyName)
 			if err != nil {
 				t.Fatalf("GetKey failed: %v", err)
 			}
@@ -107,10 +108,11 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	slotID := "key-a"
+	ns := "test-ns"
+	keyName := "key-a"
 
 	// Create first key
-	key1, err := km.CreateKey(ctx, slotID, KeyTypeECP256)
+	key1, err := km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey (first) failed: %v", err)
 	}
@@ -118,13 +120,13 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	// Note: UUIDs ensure different IDs for each key generation
 
 	// Create second key (rotation)
-	key2, err := km.CreateKey(ctx, slotID, KeyTypeECP256)
+	key2, err := km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey (second) failed: %v", err)
 	}
 
 	// GetKey should return the newer key (might have same ID if created in same second)
-	key3, err := km.GetKey(ctx, slotID)
+	key3, err := km.GetKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("GetKey failed: %v", err)
 	}
@@ -153,7 +155,7 @@ func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to get a key that doesn't exist
-	_, err = km.GetKey(ctx, "nonexistent")
+	_, err = km.GetKey(ctx, "test-ns", "nonexistent")
 	if err == nil {
 		t.Error("GetKey succeeded for nonexistent key, expected error")
 	}
@@ -170,14 +172,15 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	ns := "test-ns"
 
 	// Create initial keys
-	_, err = km.CreateKey(ctx, "key-a", KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, "key-a", KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
 
-	_, err = km.CreateKey(ctx, "key-b", KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, "key-b", KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
@@ -191,12 +194,12 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				slotID := "key-a"
+				keyName := "key-a"
 				if j%2 == 0 {
-					slotID = "key-b"
+					keyName = "key-b"
 				}
 
-				_, err := km.GetKey(ctx, slotID)
+				_, err := km.GetKey(ctx, ns, keyName)
 				if err != nil {
 					t.Errorf("GetKey failed: %v", err)
 				}
@@ -218,9 +221,9 @@ func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
 	}
 
 	// Manually write corrupted JSON to the filesystem
-	memFS.MkdirAll("/keys", 0700)
+	memFS.MkdirAll("/keys/test-ns", 0700)
 	corruptedJSON := []byte("{invalid json}")
-	err = memFS.WriteFileAtomic("/keys/key-a.json", corruptedJSON, 0600)
+	err = memFS.WriteFileAtomic("/keys/test-ns/key-a.json", corruptedJSON, 0600)
 	if err != nil {
 		t.Fatalf("WriteFileAtomic failed: %v", err)
 	}
@@ -228,7 +231,7 @@ func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to get the corrupted key
-	_, err = km.GetKey(ctx, "key-a")
+	_, err = km.GetKey(ctx, "test-ns", "key-a")
 	if err == nil {
 		t.Error("GetKey succeeded with corrupted JSON, expected error")
 	}
@@ -247,9 +250,11 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	ns := "test-ns"
+	keyName := "key-a"
 
 	// Create a key
-	key1, err := km1.CreateKey(ctx, "key-a", KeyTypeECP256)
+	key1, err := km1.CreateKey(ctx, ns, keyName, KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
@@ -264,7 +269,7 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 	}
 
 	// Retrieve the key with second instance
-	key2, err := km2.GetKey(ctx, "key-a")
+	key2, err := km2.GetKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("GetKey failed: %v", err)
 	}
@@ -285,15 +290,17 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 	}
 
 	ctx := context.Background()
+	ns := "test-ns"
+	keyName := "key-a"
 
 	// Create a key
-	_, err = km.CreateKey(ctx, "key-a", KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
 
 	// Verify the final file exists
-	data, err := memFS.ReadFile("/keys/key-a.json")
+	data, err := memFS.ReadFile("/keys/test-ns/key-a.json")
 	if err != nil {
 		t.Fatalf("Final file doesn't exist: %v", err)
 	}
@@ -322,7 +329,7 @@ func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
 	ctx := context.Background()
 
 	// Try to create a key with invalid type
-	_, err = km.CreateKey(ctx, "key-a", KeyType("invalid"))
+	_, err = km.CreateKey(ctx, "test-ns", "key-a", KeyType("invalid"))
 	if err == nil {
 		t.Error("CreateKey succeeded with invalid key type, expected error")
 	}

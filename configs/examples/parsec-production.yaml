@@ -74,18 +74,20 @@ data_sources:
       group_name: "org-cache"
       cache_size: 104857600  # 100 MB
 
+# Key managers - production uses AWS KMS
+key_managers:
+  - id: "prod-kms"
+    type: "aws_kms"
+    region: "us-east-1"
+    alias_prefix: "alias/parsec/prod-"
+
 # Token issuers
 issuers:
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: transaction_token
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
-    # For production, use AWS KMS for secure key management
-    # Requires AWS credentials (IAM role, env vars, etc.)
-    key_manager:
-      type: "aws_kms"
-      region: "us-east-1"
-      alias_prefix: "alias/parsec/prod-"
+    key_manager: "prod-kms"
     transaction_context:
       - type: "cel"
         expression: |

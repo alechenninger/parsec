@@ -5,19 +5,22 @@ import (
 	"crypto"
 )
 
-// KeyManager manages cryptographic keys using stable slot identifiers.
-// slotID is a stable internal identifier used to manage key versions.
+// KeyManager manages cryptographic keys using stable key names within a namespace.
 // The Key.ID is a backend-specific identifier used as the kid in JWTs and JWKS.
 type KeyManager interface {
-	// CreateKey creates a new key for the given slotID.
-	// For backends like AWS KMS, slotID is used to construct the alias name.
-	// When a key with the same slotID already exists, it creates a new version,
-	// schedules the old one for deletion, and updates any aliases.
+	// CreateKey creates a key that can be later retrieved by namespace and name.
+	// namespace: A scoping identifier (e.g. trust domain or token type URN).
+	// keyName: A stable internal identifier for the key (e.g. "key-a").
+	//
+	// When a key with the same namespace and keyName already exists, a new version is
+	// created with the same name but a different Key ID (kid). Implementations are
+	// expected to remove old key versions.
+	//
 	// Returns a Key with Key.ID being a unique identifier (used as kid in JWTs).
-	CreateKey(ctx context.Context, slotID string, keyType KeyType) (*Key, error)
+	CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error)
 
-	// GetKey retrieves the current key for a specific slotID for signing operations.
-	GetKey(ctx context.Context, slotID string) (*Key, error)
+	// GetKey retrieves the current key for a specific namespace and keyName for signing operations.
+	GetKey(ctx context.Context, namespace string, keyName string) (*Key, error)
 }
 
 // KeyType represents the cryptographic key type

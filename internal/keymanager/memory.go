@@ -15,7 +15,7 @@ import (
 // It generates cryptographic keys in memory using stable slot identifiers.
 type InMemoryKeyManager struct {
 	mu         sync.RWMutex
-	keys       map[string]*Key // Current keys by slotID
+	keys       map[string]*Key // Current keys by namespace:keyName
 	oldKeys    []*Key          // Keys scheduled for deletion
 	keyCounter int             // Counter for generating unique key IDs
 }
@@ -29,14 +29,16 @@ func NewInMemoryKeyManager() *InMemoryKeyManager {
 	}
 }
 
-// CreateKey creates a new key with the given slotID.
-// If a key with this slotID already exists, it moves the old key to the deletion queue.
-func (m *InMemoryKeyManager) CreateKey(ctx context.Context, slotID string, keyType KeyType) (*Key, error) {
+// CreateKey creates a new key with the given namespace and keyName.
+// If a key with this identifier already exists, it moves the old key to the deletion queue.
+func (m *InMemoryKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If key exists with this slotID, move to oldKeys (simulate deletion scheduling)
-	if existing, ok := m.keys[slotID]; ok {
+	storageKey := m.storageKey(namespace, keyName)
+
+	// If key exists with this identifier, move to oldKeys (simulate deletion scheduling)
+	if existing, ok := m.keys[storageKey]; ok {
 		m.oldKeys = append(m.oldKeys, existing)
 	}
 
@@ -82,7 +84,8 @@ func (m *InMemoryKeyManager) CreateKey(ctx context.Context, slotID string, keyTy
 	// This is what gets exposed in JWTs and JWKS
 	// Use an incrementing counter for deterministic testing
 	m.keyCounter++
-	kid := fmt.Sprintf("%s-%d", slotID, m.keyCounter)
+	// kid uses namespace and keyName but replaces colon with hyphen for cleaner IDs
+	kid := fmt.Sprintf("%s-%s-%d", namespace, keyName, m.keyCounter)
 
 	key := &Key{
 		ID:        kid, // Unique kid for JWKS/JWT
@@ -90,20 +93,25 @@ func (m *InMemoryKeyManager) CreateKey(ctx context.Context, slotID string, keyTy
 		Signer:    signer,
 	}
 
-	m.keys[slotID] = key
+	m.keys[storageKey] = key
 
 	return key, nil
 }
 
-// GetKey retrieves a key by its slotID for signing operations
-func (m *InMemoryKeyManager) GetKey(ctx context.Context, slotID string) (*Key, error) {
+// GetKey retrieves a key by its namespace and keyName for signing operations
+func (m *InMemoryKeyManager) GetKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	key, ok := m.keys[slotID]
+	storageKey := m.storageKey(namespace, keyName)
+	key, ok := m.keys[storageKey]
 	if !ok {
-		return nil, fmt.Errorf("key not found: %s", slotID)
+		return nil, fmt.Errorf("key not found: %s", storageKey)
 	}
 
 	return key, nil
+}
+
+func (m *InMemoryKeyManager) storageKey(namespace, keyName string) string {
+	return namespace + ":" + keyName
 }

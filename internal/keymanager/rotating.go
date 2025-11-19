@@ -14,10 +14,6 @@ import (
 )
 
 const (
-	// KeyIDA and KeyIDB are the alternating key identifiers
-	KeyIDA = "key-a"
-	KeyIDB = "key-b"
-
 	// Default timing parameters (hardcoded for now, configurable later)
 	defaultKeyTTL            = 24 * time.Hour
 	defaultRotationThreshold = 6 * time.Hour   // Rotate when 6h remaining
@@ -33,11 +29,13 @@ type Algorithm string
 
 // RotatingKeyManager manages automatic key rotation using a KeyManager
 type RotatingKeyManager struct {
-	keyManager     KeyManager
-	slotStore      KeySlotStore
-	keyType        KeyType
-	algorithm      string        // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
-	prepareTimeout time.Duration // How long to wait before retrying a stuck "preparing" state
+	tokenType          string                // Token type URN (issuer identifier)
+	keyManagerID       string                // Current KeyManager to use for new keys
+	keyManagerRegistry map[string]KeyManager // All available KeyManagers
+	slotStore          KeySlotStore
+	keyType            KeyType
+	algorithm          string        // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
+	prepareTimeout     time.Duration // How long to wait before retrying a stuck "preparing" state
 
 	// Timing parameters:
 	//
@@ -71,11 +69,13 @@ type RotatingKeyManager struct {
 
 // RotatingKeyManagerConfig configures the RotatingKeyManager
 type RotatingKeyManagerConfig struct {
-	KeyManager KeyManager
-	SlotStore  KeySlotStore
-	KeyType    KeyType
-	Algorithm  string // JWT algorithm (e.g., "ES256", "RS256", "RS384", "RS512")
-	Clock      clock.Clock
+	TokenType          string                // Token type URN (issuer identifier)
+	KeyManagerID       string                // Current KeyManager to use for new keys
+	KeyManagerRegistry map[string]KeyManager // All available KeyManagers
+	SlotStore          KeySlotStore
+	KeyType            KeyType
+	Algorithm          string // JWT algorithm (e.g., "ES256", "RS256", "RS384", "RS512")
+	Clock              clock.Clock
 
 	// Optional timing overrides (uses defaults if not set)
 	KeyTTL            time.Duration
@@ -118,17 +118,27 @@ func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
 	}
 
 	return &RotatingKeyManager{
-		keyManager:        cfg.KeyManager,
-		slotStore:         cfg.SlotStore,
-		keyType:           cfg.KeyType,
-		algorithm:         cfg.Algorithm,
-		keyTTL:            keyTTL,
-		rotationThreshold: rotationThreshold,
-		gracePeriod:       gracePeriod,
-		checkInterval:     checkInterval,
-		prepareTimeout:    prepareTimeout,
-		clock:             clk,
+		tokenType:          cfg.TokenType,
+		keyManagerID:       cfg.KeyManagerID,
+		keyManagerRegistry: cfg.KeyManagerRegistry,
+		slotStore:          cfg.SlotStore,
+		keyType:            cfg.KeyType,
+		algorithm:          cfg.Algorithm,
+		keyTTL:             keyTTL,
+		rotationThreshold:  rotationThreshold,
+		gracePeriod:        gracePeriod,
+		checkInterval:      checkInterval,
+		prepareTimeout:     prepareTimeout,
+		clock:              clk,
 	}
+}
+
+// keyName returns the stable key name for a slot position
+func (r *RotatingKeyManager) keyName(p SlotPosition) string {
+	if p == SlotPositionA {
+		return "key-a"
+	}
+	return "key-b"
 }
 
 // Start begins the background key rotation process
@@ -203,13 +213,29 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
-	// If we have any slots, we're already initialized
-	if len(slots) > 0 {
+	// Check if we have any slots for this token type
+	hasSlots := false
+	for _, slot := range slots {
+		if slot.TokenType == r.tokenType {
+			hasSlots = true
+			break
+		}
+	}
+
+	// If we have any slots for this token type, we're already initialized
+	if hasSlots {
 		return nil
 	}
 
-	// Create key in KeyManager using slot ID directly
-	_, err = r.keyManager.CreateKey(ctx, KeyIDA, r.keyType)
+	// Get current KeyManager
+	km, ok := r.keyManagerRegistry[r.keyManagerID]
+	if !ok {
+		return fmt.Errorf("key manager not found: %s", r.keyManagerID)
+	}
+
+	// Create key in KeyManager using namespace and keyName
+	keyName := r.keyName(SlotPositionA)
+	_, err = km.CreateKey(ctx, r.tokenType, keyName, r.keyType)
 	if err != nil {
 		return fmt.Errorf("failed to create initial key: %w", err)
 	}
@@ -217,7 +243,9 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 	// Save slot
 	now := r.clock.Now()
 	slotA := &KeySlot{
-		SlotID:              KeyIDA,
+		Position:            SlotPositionA,
+		TokenType:           r.tokenType,
+		KeyManagerID:        r.keyManagerID,
 		RotationCompletedAt: &now,
 		Algorithm:           r.algorithm,
 	}
@@ -238,16 +266,19 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
-	// Filter slots to find slotA and slotB
+	// Filter slots to find slotA and slotB for this token type
 	var slotA, slotB *KeySlot
 	for _, slot := range slots {
-		switch slot.SlotID {
-		case KeyIDA:
+		if slot.TokenType != r.tokenType {
+			continue // Skip slots for other token types
+		}
+		switch slot.Position {
+		case SlotPositionA:
 			slotA = slot
-		case KeyIDB:
+		case SlotPositionB:
 			slotB = slot
 		default:
-			return fmt.Errorf("unexpected slot ID: %s", slot.SlotID)
+			return fmt.Errorf("unexpected slot position for token type %s: %s", r.tokenType, slot.Position)
 		}
 	}
 
@@ -269,6 +300,8 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 	}
 
 	targetSlot.PreparingAt = &now
+	// Use current KeyManager for new key
+	targetSlot.KeyManagerID = r.keyManagerID
 	storeVersion, err = r.slotStore.SaveSlot(ctx, targetSlot, storeVersion)
 	if errors.Is(err, ErrVersionMismatch) {
 		return nil // Another process won, that's fine
@@ -277,8 +310,15 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 		return err
 	}
 
-	// 4. Generate key and complete rotation
-	key, err := r.keyManager.CreateKey(ctx, targetSlot.SlotID, r.keyType)
+	// 4. Generate key and complete rotation using current KeyManager
+	km, ok := r.keyManagerRegistry[r.keyManagerID]
+	if !ok {
+		return fmt.Errorf("key manager not found: %s", r.keyManagerID)
+	}
+
+	// Use namespace and keyName for KeyManager creation
+	keyName := r.keyName(targetSlot.Position)
+	key, err := km.CreateKey(ctx, r.tokenType, keyName, r.keyType)
 	if err != nil {
 		return fmt.Errorf("failed to create key: %w", err)
 	}
@@ -287,18 +327,19 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 	// Use the version from after we saved the preparing state
 	targetSlot.PreparingAt = nil
 	targetSlot.RotationCompletedAt = &now
+	targetSlot.Algorithm = r.algorithm
 
 	_, err = r.slotStore.SaveSlot(ctx, targetSlot, storeVersion)
 	if errors.Is(err, ErrVersionMismatch) {
 		// Another process completed rotation, that's ok
-		log.Printf("Another process completed rotation for slot %s, skipping", targetSlot.SlotID)
+		log.Printf("Another process completed rotation for slot %s, skipping", targetSlot.Position)
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("failed to save slot: %w", err)
 	}
 
-	log.Printf("Completed rotation for slot %s, new kid: %s", targetSlot.SlotID, key.ID)
+	log.Printf("Completed rotation for slot %s, new kid: %s", targetSlot.Position, key.ID)
 
 	return nil
 }
@@ -350,7 +391,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot B if it doesn't exist
 		if slotB == nil {
 			slotB = &KeySlot{
-				SlotID: KeyIDB,
+				Position:     SlotPositionB,
+				TokenType:    r.tokenType,
+				KeyManagerID: r.keyManagerID,
 			}
 		}
 		// Don't rotate if target slot (B) already has a recent key
@@ -369,10 +412,13 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot A if it doesn't exist (shouldn't happen but be safe)
 		if slotA == nil {
 			slotA = &KeySlot{
-				SlotID: KeyIDA,
+				Position:     SlotPositionA,
+				TokenType:    r.tokenType,
+				KeyManagerID: r.keyManagerID,
 			}
 		}
 		// Don't rotate if target slot (A) already has a recent key
+		// This prevents re-rotating A to B when B was just created
 		if slotA.RotationCompletedAt != nil {
 			// If A is newer than B, don't rotate B again
 			if slotB.RotationCompletedAt != nil && slotA.RotationCompletedAt.After(*slotB.RotationCompletedAt) {
@@ -393,8 +439,16 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
-	if len(slots) == 0 {
-		return errors.New("no slots available")
+	// Filter slots for this token type
+	var mySlots []*KeySlot
+	for _, slot := range slots {
+		if slot.TokenType == r.tokenType {
+			mySlots = append(mySlots, slot)
+		}
+	}
+
+	if len(mySlots) == 0 {
+		return errors.New("no slots available for this token type")
 	}
 
 	now := r.clock.Now()
@@ -405,7 +459,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	var preferredSlots []*KeySlot // Keys past grace period
 	var fallbackSlots []*KeySlot  // Keys still in grace period
 
-	for _, slot := range slots {
+	for _, slot := range mySlots {
 		// Check if key is expired
 		isExpired := false
 		if slot.RotationCompletedAt != nil {
@@ -419,10 +473,18 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 			continue // Skip expired keys
 		}
 
-		// Retrieve the key from KeyManager using slot ID
-		key, err := r.keyManager.GetKey(ctx, slot.SlotID)
+		// Get the KeyManager that created this key
+		km, ok := r.keyManagerRegistry[slot.KeyManagerID]
+		if !ok {
+			log.Printf("Warning: key manager %s not found for slot %s, skipping", slot.KeyManagerID, slot.Position)
+			continue
+		}
+
+		// Retrieve the key from KeyManager using namespace and keyName
+		keyName := r.keyName(slot.Position)
+		key, err := km.GetKey(ctx, r.tokenType, keyName)
 		if err != nil {
-			log.Printf("Warning: failed to get key %s from key manager: %v", slot.SlotID, err)
+			log.Printf("Warning: failed to get key %s from key manager: %v", slot.Position, err)
 			continue
 		}
 
@@ -465,10 +527,17 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 		return errors.New("no keys available")
 	}
 
-	// Get the active key using slot ID
-	activeKey, err := r.keyManager.GetKey(ctx, activeSlot.SlotID)
+	// Get the KeyManager that created the active key
+	km, ok := r.keyManagerRegistry[activeSlot.KeyManagerID]
+	if !ok {
+		return fmt.Errorf("key manager %s not found for active slot", activeSlot.KeyManagerID)
+	}
+
+	// Get the active key using namespace and keyName
+	keyName := r.keyName(activeSlot.Position)
+	activeKey, err := km.GetKey(ctx, r.tokenType, keyName)
 	if err != nil {
-		return fmt.Errorf("failed to get active key %s from key manager: %w", activeSlot.SlotID, err)
+		return fmt.Errorf("failed to get active key %s from key manager: %w", activeSlot.Position, err)
 	}
 
 	// Update all cached data atomically

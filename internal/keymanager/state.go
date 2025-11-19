@@ -16,12 +16,22 @@ var (
 // StoreVersion is an opaque version identifier for the key slot store
 type StoreVersion string
 
+// SlotPosition identifies a specific rotation slot (A or B)
+type SlotPosition string
+
+const (
+	SlotPositionA SlotPosition = "A"
+	SlotPositionB SlotPosition = "B"
+)
+
 // KeySlot represents a key slot with its current key
 type KeySlot struct {
-	SlotID              string     // "key-a" or "key-b" (also used as slotID for KeyManager)
-	PreparingAt         *time.Time // When "preparing" state started (nil = not preparing)
-	RotationCompletedAt *time.Time // When rotation completed (for grace period)
-	Algorithm           string     // JWT algorithm (e.g., "ES256")
+	Position            SlotPosition // A or B
+	TokenType           string       // Which token type (issuer) owns this slot
+	KeyManagerID        string       // Which KeyManager created this key
+	PreparingAt         *time.Time   // When "preparing" state started (nil = not preparing)
+	RotationCompletedAt *time.Time   // When rotation completed (for grace period)
+	Algorithm           string       // JWT algorithm (e.g., "ES256")
 }
 
 // KeySlotStore is an interface for persisting key slots with concurrency control
@@ -62,7 +72,8 @@ func (s *InMemoryKeySlotStore) SaveSlot(ctx context.Context, slot *KeySlot, expe
 
 	// Save a deep copy and increment store version
 	slotCopy := s.copySlot(slot)
-	s.slots[slot.SlotID] = slotCopy
+	storageKey := s.storageKey(slot)
+	s.slots[storageKey] = slotCopy
 	s.version++
 
 	newVersion := StoreVersion(strconv.Itoa(s.version))
@@ -83,11 +94,18 @@ func (s *InMemoryKeySlotStore) ListSlots(ctx context.Context) ([]*KeySlot, Store
 	return slots, StoreVersion(strconv.Itoa(s.version)), nil
 }
 
+// storageKey generates the internal map key for a slot
+func (s *InMemoryKeySlotStore) storageKey(slot *KeySlot) string {
+	return slot.TokenType + ":" + string(slot.Position)
+}
+
 // copySlot creates a deep copy of a KeySlot
 func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 	copy := &KeySlot{
-		SlotID:    slot.SlotID,
-		Algorithm: slot.Algorithm,
+		Position:     slot.Position,
+		TokenType:    slot.TokenType,
+		KeyManagerID: slot.KeyManagerID,
+		Algorithm:    slot.Algorithm,
 	}
 
 	if slot.PreparingAt != nil {

@@ -21,6 +21,9 @@ type Config struct {
 	// DataSources for token enrichment
 	DataSources []DataSourceConfig `koanf:"data_sources"`
 
+	// KeyManagers defines named key manager instances
+	KeyManagers []KeyManagerConfig `koanf:"key_managers"`
+
 	// Issuers configuration for different token types
 	Issuers []IssuerConfig `koanf:"issuers"`
 
@@ -195,9 +198,9 @@ type IssuerConfig struct {
 	IssuerURL string `koanf:"issuer_url"`
 	TTL       string `koanf:"ttl"` // Duration string like "5m"
 
-	// KeyManager configuration
+	// KeyManager references a named key manager from the global key_managers config
 	// Used for transaction tokens to configure the key manager
-	KeyManager *KeyManagerConfig `koanf:"key_manager"`
+	KeyManager string `koanf:"key_manager"`
 
 	// Transaction token issuer fields (stub, transaction_token types)
 	// These mappers build the "tctx" and "req_ctx" claims
@@ -214,6 +217,9 @@ type IssuerConfig struct {
 
 // KeyManagerConfig configures a key manager
 type KeyManagerConfig struct {
+	// ID uniquely identifies this key manager
+	ID string `koanf:"id"`
+
 	// Type selects the key manager implementation
 	// Options: "memory", "aws_kms", "disk"
 	Type string `koanf:"type"`

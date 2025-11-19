@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,8 +70,9 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 }
 
 // CreateKey creates a new key and stores it on disk.
-// If a key with this slotID already exists, it deletes the old key file and creates a new one.
-func (m *DiskKeyManager) CreateKey(ctx context.Context, slotID string, keyType KeyType) (*Key, error) {
+// Keys are stored in subdirectories based on namespace.
+// If a key with this name already exists, it deletes the old key file and creates a new one.
+func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -134,7 +136,7 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, slotID string, keyType K
 	}
 
 	// Write to disk atomically
-	if err := m.writeKeyFile(slotID, &data); err != nil {
+	if err := m.writeKeyFile(namespace, keyName, &data); err != nil {
 		return nil, fmt.Errorf("failed to write key file: %w", err)
 	}
 
@@ -145,13 +147,13 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, slotID string, keyType K
 	}, nil
 }
 
-// GetKey retrieves a key from disk by its slotID
-func (m *DiskKeyManager) GetKey(ctx context.Context, slotID string) (*Key, error) {
+// GetKey retrieves a key from disk by its namespace and keyName
+func (m *DiskKeyManager) GetKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Read key file
-	data, err := m.readKeyFile(slotID)
+	data, err := m.readKeyFile(namespace, keyName)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +184,14 @@ func (m *DiskKeyManager) GetKey(ctx context.Context, slotID string) (*Key, error
 }
 
 // writeKeyFile atomically writes a key file to disk
-func (m *DiskKeyManager) writeKeyFile(slotID string, data *keyFileData) error {
-	keyFilePath := m.keyFilePath(slotID)
+func (m *DiskKeyManager) writeKeyFile(namespace, keyName string, data *keyFileData) error {
+	keyFilePath := m.keyFilePath(namespace, keyName)
+
+	// Ensure directory exists
+	dir := filepath.Dir(keyFilePath)
+	if err := m.fs.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+	}
 
 	// Marshal to JSON
 	jsonData, err := json.MarshalIndent(data, "", "  ")
@@ -200,14 +208,14 @@ func (m *DiskKeyManager) writeKeyFile(slotID string, data *keyFileData) error {
 }
 
 // readKeyFile reads a key file from disk
-func (m *DiskKeyManager) readKeyFile(slotID string) (*keyFileData, error) {
-	keyFilePath := m.keyFilePath(slotID)
+func (m *DiskKeyManager) readKeyFile(namespace, keyName string) (*keyFileData, error) {
+	keyFilePath := m.keyFilePath(namespace, keyName)
 
 	// Read file
 	jsonData, err := m.fs.ReadFile(keyFilePath)
 	if err != nil {
 		if m.fs.IsNotExist(err) {
-			return nil, fmt.Errorf("key not found: %s", slotID)
+			return nil, fmt.Errorf("key not found: %s/%s", namespace, keyName)
 		}
 		return nil, fmt.Errorf("failed to read key file: %w", err)
 	}
@@ -221,7 +229,15 @@ func (m *DiskKeyManager) readKeyFile(slotID string) (*keyFileData, error) {
 	return &data, nil
 }
 
-// keyFilePath returns the full path to a key file for a given slotID
-func (m *DiskKeyManager) keyFilePath(slotID string) string {
-	return filepath.Join(m.keysPath, fmt.Sprintf("%s.json", slotID))
+// keyFilePath returns the full path to a key file for a given namespace and keyName
+func (m *DiskKeyManager) keyFilePath(namespace, keyName string) string {
+	sanitizedNS := m.sanitize(namespace)
+	return filepath.Join(m.keysPath, sanitizedNS, fmt.Sprintf("%s.json", keyName))
+}
+
+// sanitize replaces invalid path characters with underscores
+func (m *DiskKeyManager) sanitize(s string) string {
+	s = strings.ReplaceAll(s, ":", "_")
+	s = strings.ReplaceAll(s, "/", "_")
+	return s
 }
