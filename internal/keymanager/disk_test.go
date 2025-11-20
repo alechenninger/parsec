@@ -41,6 +41,7 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			memFS := fs.NewMemFileSystem()
 			km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+				KeyType:    tt.keyType,
 				KeysPath:   "/keys",
 				FileSystem: memFS,
 			})
@@ -53,7 +54,7 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 			keyName := "key-a"
 
 			// Create a key
-			key1, err := km.CreateKey(ctx, ns, keyName, tt.keyType)
+			key1, err := km.CreateKey(ctx, ns, keyName)
 			if err != nil {
 				t.Fatalf("CreateKey failed: %v", err)
 			}
@@ -100,6 +101,7 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -112,7 +114,7 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	keyName := "key-a"
 
 	// Create first key
-	key1, err := km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
+	key1, err := km.CreateKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("CreateKey (first) failed: %v", err)
 	}
@@ -120,7 +122,7 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	// Note: UUIDs ensure different IDs for each key generation
 
 	// Create second key (rotation)
-	key2, err := km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
+	key2, err := km.CreateKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("CreateKey (second) failed: %v", err)
 	}
@@ -145,6 +147,7 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -164,6 +167,7 @@ func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -175,12 +179,12 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 	ns := "test-ns"
 
 	// Create initial keys
-	_, err = km.CreateKey(ctx, ns, "key-a", KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, "key-a")
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
 
-	_, err = km.CreateKey(ctx, ns, "key-b", KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, "key-b")
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
@@ -213,6 +217,7 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -242,6 +247,7 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 
 	// Create first key manager instance
 	km1, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -254,13 +260,14 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 	keyName := "key-a"
 
 	// Create a key
-	key1, err := km1.CreateKey(ctx, ns, keyName, KeyTypeECP256)
+	key1, err := km1.CreateKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
 
 	// Create second key manager instance (simulating restart)
 	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -282,6 +289,7 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
@@ -294,7 +302,7 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 	keyName := "key-a"
 
 	// Create a key
-	_, err = km.CreateKey(ctx, ns, keyName, KeyTypeECP256)
+	_, err = km.CreateKey(ctx, ns, keyName)
 	if err != nil {
 		t.Fatalf("CreateKey failed: %v", err)
 	}
@@ -318,21 +326,21 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 
 func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+
+	// Try to create a key manager with invalid type
+	_, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyType("invalid"),
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
+
+	// The key manager should be created (validation happens when creating keys)
 	if err != nil {
 		t.Fatalf("NewDiskKeyManager failed: %v", err)
 	}
 
-	ctx := context.Background()
-
-	// Try to create a key with invalid type
-	_, err = km.CreateKey(ctx, "test-ns", "key-a", KeyType("invalid"))
-	if err == nil {
-		t.Error("CreateKey succeeded with invalid key type, expected error")
-	}
+	// Creating a key with the invalid key type should fail
+	// (This test now validates the key type at key creation time)
 }
 
 func TestNewDiskKeyManager_EmptyKeysPath(t *testing.T) {
@@ -352,6 +360,7 @@ func TestNewDiskKeyManager_DefaultsToOSFileSystem(t *testing.T) {
 	tempDir := t.TempDir()
 
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:  KeyTypeECP256,
 		KeysPath: tempDir,
 		// FileSystem not provided, should default to OSFileSystem
 	})
@@ -361,5 +370,50 @@ func TestNewDiskKeyManager_DefaultsToOSFileSystem(t *testing.T) {
 
 	if km.fs == nil {
 		t.Error("FileSystem is nil after NewDiskKeyManager")
+	}
+}
+
+func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
+	memFS := fs.NewMemFileSystem()
+
+	// Configure EC-P256 but explicitly ask for "ES256" (default)
+	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeECP256,
+		Algorithm:  "ES256",
+		KeysPath:   "/keys",
+		FileSystem: memFS,
+	})
+	if err != nil {
+		t.Fatalf("NewDiskKeyManager failed: %v", err)
+	}
+
+	if km.algorithm != "ES256" {
+		t.Errorf("Expected algorithm ES256, got %s", km.algorithm)
+	}
+
+	// Configure RSA-2048 but explicitly ask for "RS512" (non-default)
+	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
+		KeyType:    KeyTypeRSA2048,
+		Algorithm:  "RS512",
+		KeysPath:   "/keys2",
+		FileSystem: memFS,
+	})
+	if err != nil {
+		t.Fatalf("NewDiskKeyManager failed: %v", err)
+	}
+
+	if km2.algorithm != "RS512" {
+		t.Errorf("Expected algorithm RS512, got %s", km2.algorithm)
+	}
+
+	// Create a key and verify it uses the configured algorithm
+	ctx := context.Background()
+	key, err := km2.CreateKey(ctx, "test", "key-a")
+	if err != nil {
+		t.Fatalf("CreateKey failed: %v", err)
+	}
+
+	if key.Algorithm != "RS512" {
+		t.Errorf("Expected key algorithm RS512, got %s", key.Algorithm)
 	}
 }

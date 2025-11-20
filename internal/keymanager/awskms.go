@@ -20,11 +20,19 @@ import (
 // It uses KMS aliases to provide stable slot identifiers while rotating the underlying CMKs.
 type AWSKMSKeyManager struct {
 	client      *kms.Client
-	aliasPrefix string // e.g., "alias/parsec/"
+	keyType     KeyType // The key type this manager creates
+	algorithm   string  // The signing algorithm to use
+	aliasPrefix string  // e.g., "alias/parsec/"
 }
 
 // AWSKMSConfig configures the AWS KMS key manager
 type AWSKMSConfig struct {
+	// KeyType is the type of keys this manager creates
+	KeyType KeyType
+
+	// Algorithm is the signing algorithm to use
+	Algorithm string
+
 	// Region is the AWS region (e.g., "us-east-1")
 	Region string
 
@@ -38,6 +46,20 @@ type AWSKMSConfig struct {
 
 // NewAWSKMSKeyManager creates a new AWS KMS key manager
 func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManager, error) {
+	if cfg.KeyType == "" {
+		return nil, fmt.Errorf("key_type is required")
+	}
+
+	algorithm := cfg.Algorithm
+	if algorithm == "" {
+		// Determine default algorithm
+		var err error
+		algorithm, err = algorithmFromKeyType(cfg.KeyType)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var client *kms.Client
 
 	if cfg.Client != nil {
@@ -61,6 +83,8 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 
 	return &AWSKMSKeyManager{
 		client:      client,
+		keyType:     cfg.KeyType,
+		algorithm:   algorithm,
 		aliasPrefix: cfg.AliasPrefix,
 	}, nil
 }
@@ -68,9 +92,9 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 // CreateKey creates a new KMS key with the given stable namespace and keyName.
 // If an alias with this name already exists, it creates a new CMK, updates the alias,
 // and schedules the old CMK for deletion (7 days).
-func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
-	// 1. Create new KMS key (CMK)
-	keySpec, err := keySpecFromKeyType(keyType)
+func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+	// 1. Create new KMS key (CMK) using configured keyType
+	keySpec, err := keySpecFromKeyType(m.keyType)
 	if err != nil {
 		return nil, err
 	}
@@ -127,21 +151,18 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyN
 		}
 	}
 
-	// 5. Get algorithm and create signer
-	algorithm, err := algorithmFromKeyType(keyType)
-	if err != nil {
-		return nil, err
-	}
+	// 5. Create signer
+	// Use configured algorithm
 
 	signer := &kmsSigner{
 		client:    m.client,
 		keyID:     newKeyID,
-		algorithm: algorithm,
+		algorithm: m.algorithm,
 	}
 
 	return &Key{
 		ID:        newKeyID,
-		Algorithm: algorithm,
+		Algorithm: m.algorithm,
 		Signer:    signer,
 	}, nil
 }
@@ -159,36 +180,15 @@ func (m *AWSKMSKeyManager) GetKey(ctx context.Context, namespace string, keyName
 		return nil, fmt.Errorf("alias not found: %s", aliasName)
 	}
 
-	// Get key metadata to determine algorithm
-	keyMeta, err := m.client.DescribeKey(ctx, &kms.DescribeKeyInput{
-		KeyId: aws.String(actualKeyID),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe key: %w", err)
-	}
-
-	// Determine algorithm
-	var algorithm string
-	switch keyMeta.KeyMetadata.KeySpec {
-	case types.KeySpecEccNistP256:
-		algorithm = "ES256"
-	case types.KeySpecEccNistP384:
-		algorithm = "ES384"
-	case types.KeySpecRsa2048, types.KeySpecRsa3072, types.KeySpecRsa4096:
-		algorithm = "RS256"
-	default:
-		return nil, fmt.Errorf("unsupported key spec: %v", keyMeta.KeyMetadata.KeySpec)
-	}
-
 	signer := &kmsSigner{
 		client:    m.client,
 		keyID:     actualKeyID,
-		algorithm: algorithm,
+		algorithm: m.algorithm,
 	}
 
 	return &Key{
 		ID:        actualKeyID,
-		Algorithm: algorithm,
+		Algorithm: m.algorithm,
 		Signer:    signer,
 	}, nil
 }

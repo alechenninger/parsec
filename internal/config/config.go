@@ -224,6 +224,15 @@ type KeyManagerConfig struct {
 	// Options: "memory", "aws_kms", "disk"
 	Type string `koanf:"type"`
 
+	// KeyType is the cryptographic key type this manager creates
+	// Options: "EC-P256", "EC-P384", "RSA-2048", "RSA-4096"
+	KeyType string `koanf:"key_type"`
+
+	// Algorithm is the signing algorithm to use with the keys
+	// Optional. Defaults based on KeyType (e.g., "ES256" for EC-P256, "RS256" for RSA-2048)
+	// Options: "ES256", "ES384", "RS256", "RS384", "RS512", "PS256", etc.
+	Algorithm string `koanf:"algorithm"`
+
 	// AWS KMS fields
 	Region      string `koanf:"region"`       // AWS region (e.g., "us-east-1")
 	AliasPrefix string `koanf:"alias_prefix"` // KMS alias prefix (e.g., "alias/parsec/")

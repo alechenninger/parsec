@@ -27,11 +27,11 @@ const (
 // KeySlot represents a key slot with its current key
 type KeySlot struct {
 	Position            SlotPosition // A or B
+	KeyID               string       // Public KID exposed in JWKS/JWTs (e.g., JWK Thumbprint)
 	TokenType           string       // Which token type (issuer) owns this slot
 	KeyManagerID        string       // Which KeyManager created this key
 	PreparingAt         *time.Time   // When "preparing" state started (nil = not preparing)
 	RotationCompletedAt *time.Time   // When rotation completed (for grace period)
-	Algorithm           string       // JWT algorithm (e.g., "ES256")
 }
 
 // KeySlotStore is an interface for persisting key slots with concurrency control
@@ -103,9 +103,9 @@ func (s *InMemoryKeySlotStore) storageKey(slot *KeySlot) string {
 func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 	copy := &KeySlot{
 		Position:     slot.Position,
+		KeyID:        slot.KeyID,
 		TokenType:    slot.TokenType,
 		KeyManagerID: slot.KeyManagerID,
-		Algorithm:    slot.Algorithm,
 	}
 
 	if slot.PreparingAt != nil {

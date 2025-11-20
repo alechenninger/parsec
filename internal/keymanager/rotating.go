@@ -30,11 +30,10 @@ type Algorithm string
 // RotatingKeyManager manages automatic key rotation using a KeyManager
 type RotatingKeyManager struct {
 	tokenType          string                // Token type URN (issuer identifier)
+	trustDomain        string                // Trust domain for namespacing
 	keyManagerID       string                // Current KeyManager to use for new keys
 	keyManagerRegistry map[string]KeyManager // All available KeyManagers
 	slotStore          KeySlotStore
-	keyType            KeyType
-	algorithm          string        // Default JWT algorithm for new keys (e.g., "RS256", "ES256")
 	prepareTimeout     time.Duration // How long to wait before retrying a stuck "preparing" state
 
 	// Timing parameters:
@@ -58,10 +57,10 @@ type RotatingKeyManager struct {
 	checkInterval time.Duration
 
 	// Cached data (updated during rotation checks, read on hot path)
-	mu              sync.RWMutex
-	activeKey       *Key
-	activeAlgorithm string
-	publicKeys      []service.PublicKey // All non-expired public keys
+	mu          sync.RWMutex
+	activeKey   *Key
+	activeKeyID string              // Public key ID (JWK Thumbprint)
+	publicKeys  []service.PublicKey // All non-expired public keys
 
 	clock  clock.Clock
 	ticker clock.Ticker
@@ -70,11 +69,10 @@ type RotatingKeyManager struct {
 // RotatingKeyManagerConfig configures the RotatingKeyManager
 type RotatingKeyManagerConfig struct {
 	TokenType          string                // Token type URN (issuer identifier)
+	TrustDomain        string                // Trust domain for namespacing
 	KeyManagerID       string                // Current KeyManager to use for new keys
 	KeyManagerRegistry map[string]KeyManager // All available KeyManagers
 	SlotStore          KeySlotStore
-	KeyType            KeyType
-	Algorithm          string // JWT algorithm (e.g., "ES256", "RS256", "RS384", "RS512")
 	Clock              clock.Clock
 
 	// Optional timing overrides (uses defaults if not set)
@@ -119,11 +117,10 @@ func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
 
 	return &RotatingKeyManager{
 		tokenType:          cfg.TokenType,
+		trustDomain:        cfg.TrustDomain,
 		keyManagerID:       cfg.KeyManagerID,
 		keyManagerRegistry: cfg.KeyManagerRegistry,
 		slotStore:          cfg.SlotStore,
-		keyType:            cfg.KeyType,
-		algorithm:          cfg.Algorithm,
 		keyTTL:             keyTTL,
 		rotationThreshold:  rotationThreshold,
 		gracePeriod:        gracePeriod,
@@ -139,6 +136,14 @@ func (r *RotatingKeyManager) keyName(p SlotPosition) string {
 		return "key-a"
 	}
 	return "key-b"
+}
+
+// namespace returns the namespace string for keys (combines trust domain and token type)
+func (r *RotatingKeyManager) namespace() string {
+	if r.trustDomain == "" {
+		return r.tokenType
+	}
+	return fmt.Sprintf("%s:%s", r.trustDomain, r.tokenType)
 }
 
 // Start begins the background key rotation process
@@ -185,14 +190,14 @@ func (r *RotatingKeyManager) GetCurrentSigner(ctx context.Context) (crypto.Signe
 	// Get the current active key and algorithm from cache (no KeyManager call on hot path)
 	r.mu.RLock()
 	key := r.activeKey
-	algorithm := r.activeAlgorithm
+	keyID := r.activeKeyID
 	r.mu.RUnlock()
 
 	if key == nil {
 		return nil, "", "", fmt.Errorf("no active key available")
 	}
 
-	return key.Signer, KeyID(key.ID), Algorithm(algorithm), nil
+	return key.Signer, KeyID(keyID), Algorithm(key.Algorithm), nil
 }
 
 // PublicKeys returns all non-expired public keys from cache
@@ -235,19 +240,25 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 
 	// Create key in KeyManager using namespace and keyName
 	keyName := r.keyName(SlotPositionA)
-	_, err = km.CreateKey(ctx, r.tokenType, keyName, r.keyType)
+	key, err := km.CreateKey(ctx, r.namespace(), keyName)
 	if err != nil {
 		return fmt.Errorf("failed to create initial key: %w", err)
+	}
+
+	// Compute JWK Thumbprint for the public key
+	thumbprint, err := ComputeThumbprint(key.Signer.Public())
+	if err != nil {
+		return fmt.Errorf("failed to compute thumbprint: %w", err)
 	}
 
 	// Save slot
 	now := r.clock.Now()
 	slotA := &KeySlot{
 		Position:            SlotPositionA,
+		KeyID:               thumbprint,
 		TokenType:           r.tokenType,
 		KeyManagerID:        r.keyManagerID,
 		RotationCompletedAt: &now,
-		Algorithm:           r.algorithm,
 	}
 
 	_, err = r.slotStore.SaveSlot(ctx, slotA, version)
@@ -318,16 +329,22 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 
 	// Use namespace and keyName for KeyManager creation
 	keyName := r.keyName(targetSlot.Position)
-	key, err := km.CreateKey(ctx, r.tokenType, keyName, r.keyType)
+	key, err := km.CreateKey(ctx, r.namespace(), keyName)
 	if err != nil {
 		return fmt.Errorf("failed to create key: %w", err)
+	}
+
+	// Compute JWK Thumbprint for the public key
+	thumbprint, err := ComputeThumbprint(key.Signer.Public())
+	if err != nil {
+		return fmt.Errorf("failed to compute thumbprint: %w", err)
 	}
 
 	// 5. Update slot with rotation completed, clear preparing state
 	// Use the version from after we saved the preparing state
 	targetSlot.PreparingAt = nil
+	targetSlot.KeyID = thumbprint
 	targetSlot.RotationCompletedAt = &now
-	targetSlot.Algorithm = r.algorithm
 
 	_, err = r.slotStore.SaveSlot(ctx, targetSlot, storeVersion)
 	if errors.Is(err, ErrVersionMismatch) {
@@ -339,7 +356,7 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 		return fmt.Errorf("failed to save slot: %w", err)
 	}
 
-	log.Printf("Completed rotation for slot %s, new kid: %s", targetSlot.Position, key.ID)
+	log.Printf("Completed rotation for slot %s, new kid: %s", targetSlot.Position, thumbprint)
 
 	return nil
 }
@@ -440,6 +457,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	}
 
 	// Filter slots for this token type
+	// TODO: maybe push token type filtering to the store rather than do it in memory after retrieving everything
 	var mySlots []*KeySlot
 	for _, slot := range slots {
 		if slot.TokenType == r.tokenType {
@@ -456,8 +474,9 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	var publicKeys []service.PublicKey
 
 	// Build list of all non-expired keys and categorize by grace period status
-	var preferredSlots []*KeySlot // Keys past grace period
-	var fallbackSlots []*KeySlot  // Keys still in grace period
+	var preferredSlots []*KeySlot            // Keys past grace period
+	var fallbackSlots []*KeySlot             // Keys still in grace period
+	thumbprints := make(map[*KeySlot]string) // Cache computed thumbprints
 
 	for _, slot := range mySlots {
 		// Check if key is expired
@@ -482,16 +501,25 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 
 		// Retrieve the key from KeyManager using namespace and keyName
 		keyName := r.keyName(slot.Position)
-		key, err := km.GetKey(ctx, r.tokenType, keyName)
+		key, err := km.GetKey(ctx, r.namespace(), keyName)
 		if err != nil {
 			log.Printf("Warning: failed to get key %s from key manager: %v", slot.Position, err)
 			continue
 		}
 
+		// Compute JWK Thumbprint dynamically from the key material
+		// This ensures the kid always matches the actual key, even if the store is out of sync
+		thumbprint, err := ComputeThumbprint(key.Signer.Public())
+		if err != nil {
+			log.Printf("Warning: failed to compute thumbprint for key %s: %v", slot.Position, err)
+			continue
+		}
+		thumbprints[slot] = thumbprint
+
 		// Add to public keys list (includes keys in grace period)
 		publicKeys = append(publicKeys, service.PublicKey{
-			KeyID:     key.ID,
-			Algorithm: slot.Algorithm,
+			KeyID:     thumbprint,
+			Algorithm: key.Algorithm,
 			Key:       key.Signer.Public(),
 			Use:       "sig",
 		})
@@ -535,7 +563,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 
 	// Get the active key using namespace and keyName
 	keyName := r.keyName(activeSlot.Position)
-	activeKey, err := km.GetKey(ctx, r.tokenType, keyName)
+	activeKey, err := km.GetKey(ctx, r.namespace(), keyName)
 	if err != nil {
 		return fmt.Errorf("failed to get active key %s from key manager: %w", activeSlot.Position, err)
 	}
@@ -543,7 +571,7 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 	// Update all cached data atomically
 	r.mu.Lock()
 	r.activeKey = activeKey
-	r.activeAlgorithm = activeSlot.Algorithm
+	r.activeKeyID = thumbprints[activeSlot]
 	r.publicKeys = publicKeys
 	r.mu.Unlock()
 

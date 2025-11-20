@@ -78,6 +78,7 @@ data_sources:
 key_managers:
   - id: "prod-kms"
     type: "aws_kms"
+    key_type: "EC-P256"
     region: "us-east-1"
     alias_prefix: "alias/parsec/prod-"
 

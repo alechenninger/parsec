@@ -23,13 +23,21 @@ import (
 // DiskKeyManager is a KeyManager that stores keys on disk as JSON files.
 // It's suitable for single-pod Kubernetes deployments with ReadWriteOnce persistent volumes.
 type DiskKeyManager struct {
-	mu       sync.RWMutex
-	keysPath string        // Directory path for storing key files
-	fs       fs.FileSystem // Filesystem abstraction for operations
+	mu        sync.RWMutex
+	keyType   KeyType       // The key type this manager creates
+	algorithm string        // The signing algorithm to use
+	keysPath  string        // Directory path for storing key files
+	fs        fs.FileSystem // Filesystem abstraction for operations
 }
 
 // DiskKeyManagerConfig configures the disk key manager
 type DiskKeyManagerConfig struct {
+	// KeyType is the type of keys this manager creates
+	KeyType KeyType
+
+	// Algorithm is the signing algorithm to use
+	Algorithm string
+
 	// KeysPath is the directory where key files will be stored
 	KeysPath string
 
@@ -52,6 +60,23 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 		return nil, fmt.Errorf("keys_path is required")
 	}
 
+	if cfg.KeyType == "" {
+		return nil, fmt.Errorf("key_type is required")
+	}
+
+	algorithm := cfg.Algorithm
+	if algorithm == "" {
+		// Determine default algorithm
+		switch cfg.KeyType {
+		case KeyTypeECP256:
+			algorithm = "ES256"
+		case KeyTypeECP384:
+			algorithm = "ES384"
+		case KeyTypeRSA2048, KeyTypeRSA4096:
+			algorithm = "RS256"
+		}
+	}
+
 	// Default to OS filesystem if not provided
 	filesystem := cfg.FileSystem
 	if filesystem == nil {
@@ -64,54 +89,51 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 	}
 
 	return &DiskKeyManager{
-		keysPath: cfg.KeysPath,
-		fs:       filesystem,
+		keyType:   cfg.KeyType,
+		algorithm: algorithm,
+		keysPath:  cfg.KeysPath,
+		fs:        filesystem,
 	}, nil
 }
 
 // CreateKey creates a new key and stores it on disk.
 // Keys are stored in subdirectories based on namespace.
 // If a key with this name already exists, it deletes the old key file and creates a new one.
-func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
+func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Generate new key based on keyType
+	// Generate new key based on configured keyType
 	var signer crypto.Signer
-	var algorithm string
 	var err error
 
-	switch keyType {
+	switch m.keyType {
 	case KeyTypeECP256:
 		signer, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate EC-P256 key: %w", err)
 		}
-		algorithm = "ES256"
 
 	case KeyTypeECP384:
 		signer, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate EC-P384 key: %w", err)
 		}
-		algorithm = "ES384"
 
 	case KeyTypeRSA2048:
 		signer, err = rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate RSA-2048 key: %w", err)
 		}
-		algorithm = "RS256"
 
 	case KeyTypeRSA4096:
 		signer, err = rsa.GenerateKey(rand.Reader, 4096)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate RSA-4096 key: %w", err)
 		}
-		algorithm = "RS256"
 
 	default:
-		return nil, fmt.Errorf("unsupported key type: %s", keyType)
+		return nil, fmt.Errorf("unsupported key type: %s", m.keyType)
 	}
 
 	// Generate a unique kid using UUID
@@ -129,8 +151,8 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyNam
 	// Create key file data
 	data := keyFileData{
 		ID:         kid,
-		Algorithm:  algorithm,
-		KeyType:    string(keyType),
+		Algorithm:  m.algorithm,
+		KeyType:    string(m.keyType),
 		PrivateKey: privateKeyB64,
 		CreatedAt:  time.Now().UTC(),
 	}
@@ -142,7 +164,7 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyNam
 
 	return &Key{
 		ID:        kid,
-		Algorithm: algorithm,
+		Algorithm: m.algorithm,
 		Signer:    signer,
 	}, nil
 }
@@ -156,6 +178,11 @@ func (m *DiskKeyManager) GetKey(ctx context.Context, namespace string, keyName s
 	data, err := m.readKeyFile(namespace, keyName)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate key type matches configured type
+	if data.KeyType != string(m.keyType) {
+		return nil, fmt.Errorf("key type mismatch: expected %s, found %s", m.keyType, data.KeyType)
 	}
 
 	// Decode base64 private key

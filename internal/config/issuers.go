@@ -36,7 +36,7 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 		tokenType := service.TokenType(issuerCfg.TokenType)
 
 		// Create issuer
-		iss, err := newIssuer(issuerCfg, kmRegistry, slotStore)
+		iss, err := newIssuer(issuerCfg, cfg.TrustDomain, kmRegistry, slotStore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create issuer for token type %s: %w", issuerCfg.TokenType, err)
 		}
@@ -61,19 +61,27 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 			return nil, fmt.Errorf("duplicate key manager id: %s", cfg.ID)
 		}
 
+		// Parse key type
+		if cfg.KeyType == "" {
+			return nil, fmt.Errorf("key manager %s requires key_type", cfg.ID)
+		}
+		keyType := keymanager.KeyType(cfg.KeyType)
+
 		var km keymanager.KeyManager
 		var err error
 
 		switch cfg.Type {
 		case "", "memory":
-			km = keymanager.NewInMemoryKeyManager()
+			km = keymanager.NewInMemoryKeyManager(keyType, cfg.Algorithm)
 
 		case "disk":
 			if cfg.KeysPath == "" {
 				return nil, fmt.Errorf("disk key manager %s requires keys_path", cfg.ID)
 			}
 			km, err = keymanager.NewDiskKeyManager(keymanager.DiskKeyManagerConfig{
-				KeysPath: cfg.KeysPath,
+				KeyType:   keyType,
+				Algorithm: cfg.Algorithm,
+				KeysPath:  cfg.KeysPath,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create disk key manager %s: %w", cfg.ID, err)
@@ -87,6 +95,8 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 				return nil, fmt.Errorf("aws_kms key manager %s requires alias_prefix", cfg.ID)
 			}
 			km, err = keymanager.NewAWSKMSKeyManager(context.Background(), keymanager.AWSKMSConfig{
+				KeyType:     keyType,
+				Algorithm:   cfg.Algorithm,
 				Region:      cfg.Region,
 				AliasPrefix: cfg.AliasPrefix,
 			})
@@ -105,14 +115,14 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 }
 
 // newIssuer creates an issuer from configuration
-func newIssuer(cfg IssuerConfig, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
 	switch cfg.Type {
 	case "stub":
 		return newStubIssuer(cfg)
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
 	case "transaction_token":
-		return newSigningTransactionTokenIssuer(cfg, kmRegistry, slotStore)
+		return newSigningTransactionTokenIssuer(cfg, trustDomain, kmRegistry, slotStore)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
@@ -166,7 +176,7 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 
 // newSigningTransactionTokenIssuer creates a signing transaction token issuer.
 // This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
-func newSigningTransactionTokenIssuer(cfg IssuerConfig, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
 		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}
@@ -211,19 +221,13 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, kmRegistry map[string]ke
 		reqMappers = append(reqMappers, m)
 	}
 
-	// Determine key type and algorithm
-	// TODO: Make this configurable
-	keyType := keymanager.KeyTypeECP256
-	algorithm := "ES256" // JWT signing algorithm
-
 	// Initialize rotating key manager with registry and token type
 	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
 		TokenType:          cfg.TokenType,
+		TrustDomain:        trustDomain,
 		KeyManagerID:       cfg.KeyManager,
 		KeyManagerRegistry: kmRegistry,
 		SlotStore:          slotStore,
-		KeyType:            keyType,
-		Algorithm:          algorithm,
 		PrepareTimeout:     1 * time.Minute,
 	})
 

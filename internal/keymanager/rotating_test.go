@@ -17,8 +17,8 @@ const testTokenType = "urn:ietf:params:oauth:token-type:txn_token"
 // Helper to create a test RotatingKeyManager with a fake clock and in memory storage
 func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyManager) (*RotatingKeyManager, KeyManager) {
 	if keyManager == nil {
-		// Create an in-memory KeyManager
-		keyManager = NewInMemoryKeyManager()
+		// Create an in-memory KeyManager with EC-P256 key type
+		keyManager = NewInMemoryKeyManager(KeyTypeECP256, "ES256")
 	}
 
 	// Create in-memory slot store if needed
@@ -37,8 +37,6 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 		KeyManagerID:       "test-km",
 		KeyManagerRegistry: kmRegistry,
 		SlotStore:          slotStore,
-		KeyType:            KeyTypeECP256,
-		Algorithm:          "ES256",
 		Clock:              clk,
 		// Short timings for faster tests
 		KeyTTL:            30 * time.Minute, // Longer to avoid premature expiration
@@ -49,6 +47,82 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	})
 
 	return rm, keyManager
+}
+
+// Mock KeyManager for failure injection
+type failKeyManager struct {
+	KeyManager
+	failCreate bool
+}
+
+func (m *failKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+	if m.failCreate {
+		return nil, assert.AnError
+	}
+	return m.KeyManager.CreateKey(ctx, namespace, keyName)
+}
+
+func TestRotatingKeyManager_RotationFailure_MaintainsOldKey(t *testing.T) {
+	clk := clock.NewFixtureClock(time.Time{})
+
+	// Setup backing KM that we can make fail
+	baseKM := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
+	mockKM := &failKeyManager{KeyManager: baseKM}
+
+	// Setup rotating manager manually to use mock
+	slotStore := NewInMemoryKeySlotStore()
+	kmRegistry := map[string]KeyManager{"test-km": mockKM}
+
+	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
+		TokenType:          testTokenType,
+		KeyManagerID:       "test-km",
+		KeyManagerRegistry: kmRegistry,
+		SlotStore:          slotStore,
+		Clock:              clk,
+		KeyTTL:             30 * time.Minute,
+		RotationThreshold:  8 * time.Minute,
+		CheckInterval:      10 * time.Second,
+	})
+
+	ctx := context.Background()
+
+	// 1. Start (succeeds)
+	err := rm.Start(ctx)
+	require.NoError(t, err)
+	defer rm.Stop()
+
+	// Get initial key ID
+	clk.Advance(10 * time.Second)
+	_, keyID1, _, err := rm.GetCurrentSigner(ctx)
+	require.NoError(t, err)
+
+	// 2. Advance to just before rotation threshold (22m)
+	// KeyTTL=30m, Threshold=8m => Rotate at 22m
+	clk.Advance(21 * time.Minute)
+
+	// 3. Set mockKM to fail BEFORE rotation is attempted
+	mockKM.failCreate = true
+
+	// 4. Advance past rotation threshold (to 23m)
+	clk.Advance(2 * time.Minute)
+
+	// Ensure enough time for rotation attempt (in background goroutine)
+	time.Sleep(50 * time.Millisecond)
+
+	// 5. Verify we still have the old key active (rotation failed)
+	_, keyID2, _, err := rm.GetCurrentSigner(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, keyID1, keyID2, "should maintain old key on rotation failure")
+
+	// 6. Advance PAST expiration (KeyTTL = 30m, we are at ~23m + 10s)
+	// Need to go past 30m total.
+	clk.Advance(10 * time.Minute) // Now at ~33m
+
+	// 7. Verify behavior - we expect it to keep using the cached key (graceful degradation)
+	// even though it is expired in the store, the cache hasn't been updated because updateActiveKeyCache failed
+	_, keyID3, _, err := rm.GetCurrentSigner(ctx)
+	require.NoError(t, err, "should still have active key from cache even if expired")
+	assert.Equal(t, keyID1, keyID3, "should maintain old key even after expiration if rotation fails")
 }
 
 func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
@@ -220,9 +294,11 @@ func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, publicKeys3, 1, "expired key should be removed from public keys")
 
-	// Should only have the newer key (which corresponds to key-b slot)
-	// Note: KeyID format is namespace-keyName-counter, so it contains "key-b"
-	assert.Contains(t, publicKeys3[0].KeyID, "key-b", "should have rotated to key-b slot")
+	// Should only have the newer key (the rotated one)
+	// KeyID is now a JWK Thumbprint (base64url encoded)
+	assert.NotEmpty(t, publicKeys3[0].KeyID, "should have a valid key ID")
+	// Verify it's different from the first key (rotation happened)
+	assert.NotEqual(t, publicKeys1[0].KeyID, publicKeys3[0].KeyID, "should have rotated to a new key")
 }
 
 func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
@@ -236,28 +312,31 @@ func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
 	require.NoError(t, err)
 	defer rm.Stop()
 
-	// Get initial key (should be in key-a slot)
+	// Get initial key
 	clk.Advance(10 * time.Second)
 
 	_, keyID1, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, string(keyID1), "key-a", "first key should be in key-a slot")
+	assert.NotEmpty(t, string(keyID1), "first key should have an ID")
 
-	// Rotate to key-b at 22m, active at 24m
+	// Rotate to second slot at 22m, active at 24m
 	clk.Advance(23 * time.Minute) // Trigger rotation at 22m
 	clk.Advance(3 * time.Minute)  // Past 2m grace period
 
 	_, keyID2, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, string(keyID2), "key-b", "second key should be in key-b slot")
+	assert.NotEmpty(t, string(keyID2), "second key should have an ID")
+	assert.NotEqual(t, keyID1, keyID2, "second key should be different from first")
 
-	// Rotate back to key-a (another 22m, active at 24m from key-b creation)
+	// Rotate back to first slot (another 22m, active at 24m from second key creation)
 	clk.Advance(23 * time.Minute) // Trigger rotation
 	clk.Advance(3 * time.Minute)  // Past grace period
 
 	_, keyID3, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
-	assert.Contains(t, string(keyID3), "key-a", "third key should be back in key-a slot")
+	assert.NotEmpty(t, string(keyID3), "third key should have an ID")
+	assert.NotEqual(t, keyID2, keyID3, "third key should be different from second")
+	assert.NotEqual(t, keyID1, keyID3, "third key should be different from first (new key in same slot)")
 }
 
 func TestRotatingKeyManager_SigningWorks(t *testing.T) {
@@ -337,12 +416,14 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	// Should have 4 key IDs
 	assert.Len(t, keyIDs, 4)
 
-	// Verify they are unique (now scoped with token type, hyphen separated)
-	// Format: namespace-keyName-counter
-	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-a-1", keyIDs[0], "first key should be scoped key-a-1")
-	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-b-2", keyIDs[1], "second key should be scoped key-b-2")
-	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-a-3", keyIDs[2], "third key should be scoped key-a-3")
-	assert.Equal(t, "urn:ietf:params:oauth:token-type:txn_token-key-b-4", keyIDs[3], "fourth key should be scoped key-b-4")
+	// Verify they are all unique (each is a JWK Thumbprint)
+	uniqueKeys := make(map[string]bool)
+	for _, kid := range keyIDs {
+		assert.NotEmpty(t, kid, "key ID should not be empty")
+		assert.False(t, uniqueKeys[kid], "key ID %s should be unique", kid)
+		uniqueKeys[kid] = true
+	}
+	assert.Len(t, uniqueKeys, 4, "all key IDs should be unique")
 }
 
 func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
@@ -379,13 +460,13 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	require.NotNil(t, slotA, "should find slot-a")
 
 	// Test optimistic locking: Save with correct version should succeed
-	slotA.Algorithm = "RS512" // Modify something
+	slotA.KeyManagerID = "test-km-2" // Modify something
 	version2, err := slotStore.SaveSlot(ctx, slotA, version1)
 	require.NoError(t, err, "should succeed with correct version")
 	assert.NotEqual(t, version1, version2, "version should change after save")
 
 	// Try to save with old version - should fail
-	slotA.Algorithm = "ES384"
+	slotA.KeyManagerID = "test-km-3"
 	_, err = slotStore.SaveSlot(ctx, slotA, version1) // Old version
 	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with old version")
 
@@ -474,7 +555,7 @@ func TestRotatingKeyManager_StopPreventsRotation(t *testing.T) {
 	assert.Equal(t, string(keyID1), string(keyID2))
 }
 
-func TestRotatingKeyManager_AlgorithmFromSlotState(t *testing.T) {
+func TestRotatingKeyManager_AlgorithmIsCorrect(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
 	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
@@ -525,4 +606,41 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, slots, 1)
 	assert.Equal(t, startTime, *slots[0].RotationCompletedAt)
+}
+
+func TestRotatingKeyManager_Namespacing(t *testing.T) {
+	clk := clock.NewFixtureClock(time.Time{})
+	km := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
+	kmRegistry := map[string]KeyManager{"test-km": km}
+	slotStore := NewInMemoryKeySlotStore()
+
+	trustDomain := "example.com"
+
+	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
+		TokenType:          testTokenType,
+		TrustDomain:        trustDomain,
+		KeyManagerID:       "test-km",
+		KeyManagerRegistry: kmRegistry,
+		SlotStore:          slotStore,
+		Clock:              clk,
+		PrepareTimeout:     1 * time.Minute,
+	})
+
+	ctx := context.Background()
+	err := rm.Start(ctx)
+	require.NoError(t, err)
+	defer rm.Stop()
+
+	// Check that key was created with correct namespace
+	// InMemoryKeyManager uses "namespace:keyName" as storage key
+	// So we should be able to retrieve it using the composite namespace
+	compositeNamespace := trustDomain + ":" + testTokenType
+
+	key, err := km.GetKey(ctx, compositeNamespace, "key-a")
+	require.NoError(t, err)
+	assert.NotNil(t, key)
+
+	// Verify we cannot get it with just token type
+	_, err = km.GetKey(ctx, testTokenType, "key-a")
+	assert.Error(t, err)
 }

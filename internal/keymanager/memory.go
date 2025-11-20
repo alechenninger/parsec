@@ -15,14 +15,30 @@ import (
 // It generates cryptographic keys in memory using stable slot identifiers.
 type InMemoryKeyManager struct {
 	mu         sync.RWMutex
+	keyType    KeyType         // The key type this manager creates
+	algorithm  string          // The signing algorithm to use
 	keys       map[string]*Key // Current keys by namespace:keyName
 	oldKeys    []*Key          // Keys scheduled for deletion
 	keyCounter int             // Counter for generating unique key IDs
 }
 
 // NewInMemoryKeyManager creates a new in-memory key manager
-func NewInMemoryKeyManager() *InMemoryKeyManager {
+func NewInMemoryKeyManager(keyType KeyType, algorithm string) *InMemoryKeyManager {
+	if algorithm == "" {
+		// Determine default algorithm
+		switch keyType {
+		case KeyTypeECP256:
+			algorithm = "ES256"
+		case KeyTypeECP384:
+			algorithm = "ES384"
+		case KeyTypeRSA2048, KeyTypeRSA4096:
+			algorithm = "RS256"
+		}
+	}
+
 	return &InMemoryKeyManager{
+		keyType:    keyType,
+		algorithm:  algorithm,
 		keys:       make(map[string]*Key),
 		oldKeys:    make([]*Key, 0),
 		keyCounter: 0,
@@ -31,7 +47,7 @@ func NewInMemoryKeyManager() *InMemoryKeyManager {
 
 // CreateKey creates a new key with the given namespace and keyName.
 // If a key with this identifier already exists, it moves the old key to the deletion queue.
-func (m *InMemoryKeyManager) CreateKey(ctx context.Context, namespace string, keyName string, keyType KeyType) (*Key, error) {
+func (m *InMemoryKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -42,42 +58,37 @@ func (m *InMemoryKeyManager) CreateKey(ctx context.Context, namespace string, ke
 		m.oldKeys = append(m.oldKeys, existing)
 	}
 
-	// Generate new key based on keyType
+	// Generate new key based on configured keyType
 	var signer crypto.Signer
-	var algorithm string
 	var err error
 
-	switch keyType {
+	switch m.keyType {
 	case KeyTypeECP256:
 		signer, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate EC-P256 key: %w", err)
 		}
-		algorithm = "ES256"
 
 	case KeyTypeECP384:
 		signer, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate EC-P384 key: %w", err)
 		}
-		algorithm = "ES384"
 
 	case KeyTypeRSA2048:
 		signer, err = rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate RSA-2048 key: %w", err)
 		}
-		algorithm = "RS256"
 
 	case KeyTypeRSA4096:
 		signer, err = rsa.GenerateKey(rand.Reader, 4096)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate RSA-4096 key: %w", err)
 		}
-		algorithm = "RS256"
 
 	default:
-		return nil, fmt.Errorf("unsupported key type: %s", keyType)
+		return nil, fmt.Errorf("unsupported key type: %s", m.keyType)
 	}
 
 	// Generate a unique kid for this key (changes with each rotation)
@@ -89,7 +100,7 @@ func (m *InMemoryKeyManager) CreateKey(ctx context.Context, namespace string, ke
 
 	key := &Key{
 		ID:        kid, // Unique kid for JWKS/JWT
-		Algorithm: algorithm,
+		Algorithm: m.algorithm,
 		Signer:    signer,
 	}
 

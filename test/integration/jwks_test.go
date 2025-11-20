@@ -29,7 +29,7 @@ func TestJWKSEndpoint(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create a signing transaction token issuer with an in-memory key manager
-	km := keymanager.NewInMemoryKeyManager()
+	km := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP256, "ES256")
 	slotStore := keymanager.NewInMemoryKeySlotStore()
 	kmRegistry := map[string]keymanager.KeyManager{
 		"test-km": km,
@@ -39,8 +39,6 @@ func TestJWKSEndpoint(t *testing.T) {
 		KeyManagerID:       "test-km",
 		KeyManagerRegistry: kmRegistry,
 		SlotStore:          slotStore,
-		KeyType:            keymanager.KeyTypeECP256,
-		Algorithm:          "ES256",
 	})
 
 	if err := rotatingKM.Start(ctx); err != nil {
@@ -186,7 +184,7 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create first issuer (transaction token with ECP256)
-	km1 := keymanager.NewInMemoryKeyManager()
+	km1 := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP256, "ES256")
 	slotStore1 := keymanager.NewInMemoryKeySlotStore()
 	kmRegistry1 := map[string]keymanager.KeyManager{
 		"test-km-1": km1,
@@ -196,8 +194,6 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		KeyManagerID:       "test-km-1",
 		KeyManagerRegistry: kmRegistry1,
 		SlotStore:          slotStore1,
-		KeyType:            keymanager.KeyTypeECP256,
-		Algorithm:          "ES256",
 	})
 
 	if err := rotatingKM1.Start(ctx); err != nil {
@@ -215,7 +211,7 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 	// Create second issuer (access token with ECP384)
-	km2 := keymanager.NewInMemoryKeyManager()
+	km2 := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP384, "ES384")
 	slotStore2 := keymanager.NewInMemoryKeySlotStore()
 	kmRegistry2 := map[string]keymanager.KeyManager{
 		"test-km-2": km2,
@@ -225,8 +221,6 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		KeyManagerID:       "test-km-2",
 		KeyManagerRegistry: kmRegistry2,
 		SlotStore:          slotStore2,
-		KeyType:            keymanager.KeyTypeECP384,
-		Algorithm:          "ES384",
 	})
 
 	if err := rotatingKM2.Start(ctx); err != nil {

@@ -17,29 +17,34 @@ key_managers:
   # Keys are stored in memory and lost on restart
   - id: "memory-km"
     type: "memory"
+    key_type: "EC-P256"
 
   # Disk-based KeyManager (persists keys to filesystem)
   # Keys are stored on disk and survive pod restarts
   - id: "disk-km"
     type: "disk"
+    key_type: "EC-P256"
     keys_path: "/var/lib/parsec/keys"
 
   # AWS KMS KeyManager for US West region
   # Requires AWS credentials (via env vars, IAM role, etc.)
   - id: "kms-us-west"
     type: "aws_kms"
+    key_type: "EC-P256"
     region: "us-west-2"
     alias_prefix: "alias/parsec/prod-"
 
   # AWS KMS KeyManager for US East region
   - id: "kms-us-east"
     type: "aws_kms"
+    key_type: "EC-P384"
     region: "us-east-1"
     alias_prefix: "alias/parsec/east-"
 
   # AWS KMS KeyManager for EU region
   - id: "kms-eu"
     type: "aws_kms"
+    key_type: "EC-P256"
     region: "eu-west-1"
     alias_prefix: "alias/parsec/eu-prod-"
 
