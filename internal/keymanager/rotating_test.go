@@ -14,10 +14,45 @@ import (
 
 const testTokenType = "urn:ietf:params:oauth:token-type:txn_token"
 
+// Mock KeyProvider for failure injection
+type failKeyProvider struct {
+	*InMemoryKeyManager
+	failCreate bool
+}
+
+func (m *failKeyProvider) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+	handle, err := m.InMemoryKeyManager.GetKeyHandle(ctx, namespace, keyName)
+	if err != nil {
+		return nil, err
+	}
+	return &failKeyHandle{handle: handle, failCreate: m.failCreate}, nil
+}
+
+type failKeyHandle struct {
+	handle     KeyHandle
+	failCreate bool
+}
+
+func (h *failKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
+	return h.handle.Sign(ctx, digest, opts)
+}
+func (h *failKeyHandle) Metadata(ctx context.Context) (string, string, error) {
+	return h.handle.Metadata(ctx)
+}
+func (h *failKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
+	return h.handle.Public(ctx)
+}
+func (h *failKeyHandle) Rotate(ctx context.Context) error {
+	if h.failCreate {
+		return assert.AnError
+	}
+	return h.handle.Rotate(ctx)
+}
+
 // Helper to create a test RotatingKeyManager with a fake clock and in memory storage
-func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyManager) (*RotatingKeyManager, KeyManager) {
+func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyProvider) (*RotatingKeyManager, KeyProvider) {
 	if keyManager == nil {
-		// Create an in-memory KeyManager with EC-P256 key type
+		// Create an in-memory KeyProvider with EC-P256 key type
 		keyManager = NewInMemoryKeyManager(KeyTypeECP256, "ES256")
 	}
 
@@ -27,7 +62,7 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	}
 
 	// Create key manager registry
-	kmRegistry := map[string]KeyManager{
+	kmRegistry := map[string]KeyProvider{
 		"test-km": keyManager,
 	}
 
@@ -49,40 +84,14 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	return rm, keyManager
 }
 
-// Mock KeyManager for failure injection
-type failKeyManager struct {
-	KeyManager
-	failCreate bool
-}
-
-func (m *failKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
-	if m.failCreate {
-		return nil, assert.AnError
-	}
-	return m.KeyManager.CreateKey(ctx, namespace, keyName)
-}
-
 func TestRotatingKeyManager_RotationFailure_MaintainsOldKey(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
 	// Setup backing KM that we can make fail
 	baseKM := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
-	mockKM := &failKeyManager{KeyManager: baseKM}
+	mockKM := &failKeyProvider{InMemoryKeyManager: baseKM}
 
-	// Setup rotating manager manually to use mock
-	slotStore := NewInMemoryKeySlotStore()
-	kmRegistry := map[string]KeyManager{"test-km": mockKM}
-
-	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
-		TokenType:          testTokenType,
-		KeyManagerID:       "test-km",
-		KeyManagerRegistry: kmRegistry,
-		SlotStore:          slotStore,
-		Clock:              clk,
-		KeyTTL:             30 * time.Minute,
-		RotationThreshold:  8 * time.Minute,
-		CheckInterval:      10 * time.Second,
-	})
+	rm, _ := newTestRotatingKeyManager(t, clk, nil, mockKM)
 
 	ctx := context.Background()
 
@@ -105,9 +114,6 @@ func TestRotatingKeyManager_RotationFailure_MaintainsOldKey(t *testing.T) {
 
 	// 4. Advance past rotation threshold (to 23m)
 	clk.Advance(2 * time.Minute)
-
-	// Ensure enough time for rotation attempt (in background goroutine)
-	time.Sleep(50 * time.Millisecond)
 
 	// 5. Verify we still have the old key active (rotation failed)
 	_, keyID2, _, err := rm.GetCurrentSigner(ctx)
@@ -141,7 +147,7 @@ func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, signer)
 	assert.NotEmpty(t, string(keyID))
-	assert.Equal(t, Algorithm("ES256"), algorithm)
+	assert.Equal(t, "ES256", string(algorithm))
 }
 
 func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
@@ -235,7 +241,8 @@ func TestRotatingKeyManager_KeyRotation(t *testing.T) {
 	// Wait for initial key to be active
 	clk.Advance(10 * time.Second) // Trigger first check
 
-	signer1, keyID1, _, err := rm.GetCurrentSigner(ctx)
+	// signer1 is wrapper
+	_, keyID1, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
 
 	// Advance time to trigger rotation (past rotation threshold)
@@ -248,18 +255,16 @@ func TestRotatingKeyManager_KeyRotation(t *testing.T) {
 	assert.Len(t, publicKeys, 2, "should have 2 keys after rotation")
 
 	// Active key should still be the old one (new key in grace period of 2m)
-	signer2, keyID2, _, err := rm.GetCurrentSigner(ctx)
+	_, keyID2, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, string(keyID1), string(keyID2), "active key should not change during grace period")
-	assert.Equal(t, signer1, signer2)
 
 	// After new key's grace period, should switch to new key
 	clk.Advance(3 * time.Minute) // Past 2m grace period
 
-	signer3, keyID3, _, err := rm.GetCurrentSigner(ctx)
+	_, keyID3, _, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
 	assert.NotEqual(t, string(keyID1), string(keyID3), "active key should change after grace period")
-	assert.NotEqual(t, signer1, signer3)
 }
 
 func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
@@ -368,7 +373,7 @@ func TestRotatingKeyManager_SigningWorks(t *testing.T) {
 
 	// Verify we get the right metadata
 	assert.NotEmpty(t, string(keyID))
-	assert.Equal(t, Algorithm("ES256"), algorithm)
+	assert.Equal(t, "ES256", string(algorithm))
 
 	// Public key should be available for verification
 	publicKeys, err := rm.PublicKeys(ctx)
@@ -449,7 +454,7 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	require.Len(t, slots, 1, "should have 1 slot")
 	require.NotEqual(t, "", version1, "version should not be empty")
 
-	// Find slotA (now unscoped)
+	// Find slotA
 	var slotA *KeySlot
 	for _, s := range slots {
 		if s.Position == SlotPositionA {
@@ -478,7 +483,7 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 
 func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, km := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, kmProvider := newTestRotatingKeyManager(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -495,11 +500,13 @@ func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	assert.Len(t, publicKeys1, 1)
 
 	// Verify the public key matches what's in the KeyManager
-	// Use namespace and keyName
-	key, err := km.GetKey(ctx, testTokenType, "key-a")
+	handle, err := kmProvider.GetKeyHandle(ctx, testTokenType, "key-a")
 	require.NoError(t, err)
 
-	assert.Equal(t, key.Signer.Public(), publicKeys1[0].Key)
+	pubKey, err := handle.Public(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, pubKey, publicKeys1[0].Key)
 
 	// Call PublicKeys again - should return cached data (same pointer)
 	publicKeys2, err := rm.PublicKeys(ctx)
@@ -571,7 +578,7 @@ func TestRotatingKeyManager_AlgorithmIsCorrect(t *testing.T) {
 
 	_, _, algorithm, err := rm.GetCurrentSigner(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, Algorithm("ES256"), algorithm)
+	assert.Equal(t, "ES256", string(algorithm))
 
 	// Public keys should also have the algorithm
 	publicKeys, err := rm.PublicKeys(ctx)
@@ -611,7 +618,7 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 func TestRotatingKeyManager_Namespacing(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 	km := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
-	kmRegistry := map[string]KeyManager{"test-km": km}
+	kmRegistry := map[string]KeyProvider{"test-km": km}
 	slotStore := NewInMemoryKeySlotStore()
 
 	trustDomain := "example.com"
@@ -636,11 +643,16 @@ func TestRotatingKeyManager_Namespacing(t *testing.T) {
 	// So we should be able to retrieve it using the composite namespace
 	compositeNamespace := trustDomain + ":" + testTokenType
 
-	key, err := km.GetKey(ctx, compositeNamespace, "key-a")
+	handle, err := km.GetKeyHandle(ctx, compositeNamespace, "key-a")
 	require.NoError(t, err)
-	assert.NotNil(t, key)
 
-	// Verify we cannot get it with just token type
-	_, err = km.GetKey(ctx, testTokenType, "key-a")
+	_, _, err = handle.Metadata(ctx)
+	require.NoError(t, err)
+
+	// Verify we cannot get it with just token type (GetKeyHandle succeeds but Metadata fails)
+	handleBad, err := km.GetKeyHandle(ctx, testTokenType, "key-a")
+	require.NoError(t, err)
+
+	_, _, err = handleBad.Metadata(ctx)
 	assert.Error(t, err)
 }

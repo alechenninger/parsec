@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// DiskKeyManager is a KeyManager that stores keys on disk as JSON files.
+// DiskKeyManager is a KeyProvider that stores keys on disk as JSON files.
 // It's suitable for single-pod Kubernetes deployments with ReadWriteOnce persistent volumes.
 type DiskKeyManager struct {
 	mu        sync.RWMutex
@@ -64,6 +64,14 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 		return nil, fmt.Errorf("key_type is required")
 	}
 
+	// Validate KeyType
+	switch cfg.KeyType {
+	case KeyTypeECP256, KeyTypeECP384, KeyTypeRSA2048, KeyTypeRSA4096:
+		// ok
+	default:
+		return nil, fmt.Errorf("unsupported key type: %s", cfg.KeyType)
+	}
+
 	algorithm := cfg.Algorithm
 	if algorithm == "" {
 		// Determine default algorithm
@@ -96,10 +104,15 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 	}, nil
 }
 
-// CreateKey creates a new key and stores it on disk.
-// Keys are stored in subdirectories based on namespace.
-// If a key with this name already exists, it deletes the old key file and creates a new one.
-func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+func (m *DiskKeyManager) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+	return &diskKeyHandle{
+		manager:   m,
+		namespace: namespace,
+		keyName:   keyName,
+	}, nil
+}
+
+func (m *DiskKeyManager) rotateKey(namespace, keyName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -110,30 +123,17 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyNam
 	switch m.keyType {
 	case KeyTypeECP256:
 		signer, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate EC-P256 key: %w", err)
-		}
-
 	case KeyTypeECP384:
 		signer, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate EC-P384 key: %w", err)
-		}
-
 	case KeyTypeRSA2048:
 		signer, err = rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate RSA-2048 key: %w", err)
-		}
-
 	case KeyTypeRSA4096:
 		signer, err = rsa.GenerateKey(rand.Reader, 4096)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate RSA-4096 key: %w", err)
-		}
-
 	default:
-		return nil, fmt.Errorf("unsupported key type: %s", m.keyType)
+		return fmt.Errorf("unsupported key type: %s", m.keyType)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to generate key: %w", err)
 	}
 
 	// Generate a unique kid using UUID
@@ -142,7 +142,7 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyNam
 	// Marshal private key to PKCS8 DER format
 	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(signer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal private key: %w", err)
+		return fmt.Errorf("failed to marshal private key: %w", err)
 	}
 
 	// Encode to base64
@@ -159,55 +159,49 @@ func (m *DiskKeyManager) CreateKey(ctx context.Context, namespace string, keyNam
 
 	// Write to disk atomically
 	if err := m.writeKeyFile(namespace, keyName, &data); err != nil {
-		return nil, fmt.Errorf("failed to write key file: %w", err)
+		return fmt.Errorf("failed to write key file: %w", err)
 	}
 
-	return &Key{
-		ID:        kid,
-		Algorithm: m.algorithm,
-		Signer:    signer,
-	}, nil
+	return nil
 }
 
-// GetKey retrieves a key from disk by its namespace and keyName
-func (m *DiskKeyManager) GetKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+func (m *DiskKeyManager) loadKey(namespace, keyName string) (crypto.Signer, string, string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Read key file
 	data, err := m.readKeyFile(namespace, keyName)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 
 	// Validate key type matches configured type
 	if data.KeyType != string(m.keyType) {
-		return nil, fmt.Errorf("key type mismatch: expected %s, found %s", m.keyType, data.KeyType)
+		return nil, "", "", fmt.Errorf("key type mismatch: expected %s, found %s", m.keyType, data.KeyType)
+	}
+	if data.Algorithm != m.algorithm {
+		return nil, "", "", fmt.Errorf("algorithm mismatch: expected %s, found %s", m.algorithm, data.Algorithm)
 	}
 
 	// Decode base64 private key
 	privateKeyDER, err := base64.StdEncoding.DecodeString(data.PrivateKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode private key: %w", err)
+		return nil, "", "", fmt.Errorf("failed to decode private key: %w", err)
 	}
 
 	// Parse PKCS8 private key
 	privateKeyAny, err := x509.ParsePKCS8PrivateKey(privateKeyDER)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse private key: %w", err)
+		return nil, "", "", fmt.Errorf("failed to parse private key: %w", err)
 	}
 
 	// Type assert to crypto.Signer
 	signer, ok := privateKeyAny.(crypto.Signer)
 	if !ok {
-		return nil, fmt.Errorf("private key does not implement crypto.Signer")
+		return nil, "", "", fmt.Errorf("private key does not implement crypto.Signer")
 	}
 
-	return &Key{
-		ID:        data.ID,
-		Algorithm: data.Algorithm,
-		Signer:    signer,
-	}, nil
+	return signer, data.ID, data.Algorithm, nil
 }
 
 // writeKeyFile atomically writes a key file to disk
@@ -267,4 +261,44 @@ func (m *DiskKeyManager) sanitize(s string) string {
 	s = strings.ReplaceAll(s, ":", "_")
 	s = strings.ReplaceAll(s, "/", "_")
 	return s
+}
+
+type diskKeyHandle struct {
+	manager   *DiskKeyManager
+	namespace string
+	keyName   string
+}
+
+func (h *diskKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
+	signer, id, _, err := h.manager.loadKey(h.namespace, h.keyName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	sig, err := signer.Sign(rand.Reader, digest, opts)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return sig, id, nil
+}
+
+func (h *diskKeyHandle) Metadata(ctx context.Context) (string, string, error) {
+	_, id, alg, err := h.manager.loadKey(h.namespace, h.keyName)
+	if err != nil {
+		return "", "", err
+	}
+	return id, alg, nil
+}
+
+func (h *diskKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
+	signer, _, _, err := h.manager.loadKey(h.namespace, h.keyName)
+	if err != nil {
+		return nil, err
+	}
+	return signer.Public(), nil
+}
+
+func (h *diskKeyHandle) Rotate(ctx context.Context) error {
+	return h.manager.rotateKey(h.namespace, h.keyName)
 }

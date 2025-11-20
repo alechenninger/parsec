@@ -2,9 +2,13 @@ package keymanager
 
 import (
 	"context"
+	"crypto"
 	"encoding/json"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alechenninger/parsec/internal/fs"
 )
@@ -45,55 +49,37 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 				KeysPath:   "/keys",
 				FileSystem: memFS,
 			})
-			if err != nil {
-				t.Fatalf("NewDiskKeyManager failed: %v", err)
-			}
+			require.NoError(t, err)
 
 			ctx := context.Background()
 			ns := "test-ns"
 			keyName := "key-a"
 
-			// Create a key
-			key1, err := km.CreateKey(ctx, ns, keyName)
-			if err != nil {
-				t.Fatalf("CreateKey failed: %v", err)
-			}
+			handle, err := km.GetKeyHandle(ctx, ns, keyName)
+			require.NoError(t, err)
 
-			if key1.ID == "" {
-				t.Error("CreateKey returned empty key ID")
-			}
+			// Create a key (rotate)
+			err = handle.Rotate(ctx)
+			require.NoError(t, err)
 
-			if key1.Algorithm != tt.wantAlg {
-				t.Errorf("CreateKey algorithm = %s, want %s", key1.Algorithm, tt.wantAlg)
-			}
+			id, alg, err := handle.Metadata(ctx)
+			require.NoError(t, err)
+			assert.NotEmpty(t, id)
+			assert.Equal(t, tt.wantAlg, alg)
 
-			if key1.Signer == nil {
-				t.Error("CreateKey returned nil signer")
-			}
+			pubKey, err := handle.Public(ctx)
+			require.NoError(t, err)
+			assert.NotNil(t, pubKey)
 
-			// Retrieve the key
-			key2, err := km.GetKey(ctx, ns, keyName)
-			if err != nil {
-				t.Fatalf("GetKey failed: %v", err)
-			}
-
-			if key2.ID != key1.ID {
-				t.Errorf("GetKey ID = %s, want %s", key2.ID, key1.ID)
-			}
-
-			if key2.Algorithm != key1.Algorithm {
-				t.Errorf("GetKey algorithm = %s, want %s", key2.Algorithm, key1.Algorithm)
-			}
-
-			if key2.Signer == nil {
-				t.Error("GetKey returned nil signer")
-			}
-
-			// Both signers should be non-nil (we can't easily compare public keys directly)
-			// The fact that we can retrieve the key and it has the same ID/algorithm is sufficient
-			if key2.Signer == nil {
-				t.Error("GetKey returned nil signer")
-			}
+			// Sign something
+			msg := []byte("message to sign")
+			hasher := crypto.SHA256.New()
+			hasher.Write(msg)
+			digest := hasher.Sum(nil)
+			sig, usedID, err := handle.Sign(ctx, digest, crypto.SHA256)
+			require.NoError(t, err)
+			assert.NotEmpty(t, sig)
+			assert.Equal(t, id, usedID)
 		})
 	}
 }
@@ -105,43 +91,30 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ns := "test-ns"
 	keyName := "key-a"
 
-	// Create first key
-	key1, err := km.CreateKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("CreateKey (first) failed: %v", err)
-	}
+	handle, err := km.GetKeyHandle(ctx, ns, keyName)
+	require.NoError(t, err)
 
-	// Note: UUIDs ensure different IDs for each key generation
+	// Create first key
+	err = handle.Rotate(ctx)
+	require.NoError(t, err)
+
+	id1, _, err := handle.Metadata(ctx)
+	require.NoError(t, err)
 
 	// Create second key (rotation)
-	key2, err := km.CreateKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("CreateKey (second) failed: %v", err)
-	}
+	err = handle.Rotate(ctx)
+	require.NoError(t, err)
 
-	// GetKey should return the newer key (might have same ID if created in same second)
-	key3, err := km.GetKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("GetKey failed: %v", err)
-	}
+	id2, _, err := handle.Metadata(ctx)
+	require.NoError(t, err)
 
-	// Verify we got a key back
-	if key3.ID == "" {
-		t.Error("GetKey returned empty key ID")
-	}
-
-	// Both keys should be valid
-	if key1.Signer == nil || key2.Signer == nil || key3.Signer == nil {
-		t.Error("One or more keys have nil signer")
-	}
+	assert.NotEqual(t, id1, id2)
 }
 
 func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
@@ -151,17 +124,17 @@ func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 
 	// Try to get a key that doesn't exist
-	_, err = km.GetKey(ctx, "test-ns", "nonexistent")
-	if err == nil {
-		t.Error("GetKey succeeded for nonexistent key, expected error")
-	}
+	handle, err := km.GetKeyHandle(ctx, "test-ns", "nonexistent")
+	require.NoError(t, err) // Handle creation succeeds
+
+	// Operations should fail
+	_, _, err = handle.Metadata(ctx)
+	assert.Error(t, err)
 }
 
 func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
@@ -171,23 +144,17 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ns := "test-ns"
 
 	// Create initial keys
-	_, err = km.CreateKey(ctx, ns, "key-a")
-	if err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
-	}
+	h1, _ := km.GetKeyHandle(ctx, ns, "key-a")
+	h1.Rotate(ctx)
 
-	_, err = km.CreateKey(ctx, ns, "key-b")
-	if err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
-	}
+	h2, _ := km.GetKeyHandle(ctx, ns, "key-b")
+	h2.Rotate(ctx)
 
 	// Concurrent reads
 	const numReaders = 10
@@ -203,9 +170,10 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 					keyName = "key-b"
 				}
 
-				_, err := km.GetKey(ctx, ns, keyName)
+				h, _ := km.GetKeyHandle(ctx, ns, keyName)
+				_, _, err := h.Metadata(ctx)
 				if err != nil {
-					t.Errorf("GetKey failed: %v", err)
+					t.Errorf("Metadata failed: %v", err)
 				}
 			}
 		}()
@@ -221,25 +189,20 @@ func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Manually write corrupted JSON to the filesystem
 	memFS.MkdirAll("/keys/test-ns", 0700)
 	corruptedJSON := []byte("{invalid json}")
 	err = memFS.WriteFileAtomic("/keys/test-ns/key-a.json", corruptedJSON, 0600)
-	if err != nil {
-		t.Fatalf("WriteFileAtomic failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 
 	// Try to get the corrupted key
-	_, err = km.GetKey(ctx, "test-ns", "key-a")
-	if err == nil {
-		t.Error("GetKey succeeded with corrupted JSON, expected error")
-	}
+	handle, _ := km.GetKeyHandle(ctx, "test-ns", "key-a")
+	_, _, err = handle.Metadata(ctx)
+	assert.Error(t, err)
 }
 
 func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
@@ -251,19 +214,18 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager (first) failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ns := "test-ns"
 	keyName := "key-a"
 
 	// Create a key
-	key1, err := km1.CreateKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
-	}
+	h1, _ := km1.GetKeyHandle(ctx, ns, keyName)
+	err = h1.Rotate(ctx)
+	require.NoError(t, err)
+
+	id1, _, _ := h1.Metadata(ctx)
 
 	// Create second key manager instance (simulating restart)
 	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
@@ -271,19 +233,14 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager (second) failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Retrieve the key with second instance
-	key2, err := km2.GetKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("GetKey failed: %v", err)
-	}
+	h2, _ := km2.GetKeyHandle(ctx, ns, keyName)
+	id2, _, err := h2.Metadata(ctx)
+	require.NoError(t, err)
 
-	if key2.ID != key1.ID {
-		t.Errorf("GetKey ID = %s, want %s", key2.ID, key1.ID)
-	}
+	assert.Equal(t, id1, id2)
 }
 
 func TestDiskKeyManager_AtomicWrite(t *testing.T) {
@@ -293,35 +250,25 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ns := "test-ns"
 	keyName := "key-a"
 
 	// Create a key
-	_, err = km.CreateKey(ctx, ns, keyName)
-	if err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
-	}
+	h, _ := km.GetKeyHandle(ctx, ns, keyName)
+	err = h.Rotate(ctx)
+	require.NoError(t, err)
 
 	// Verify the final file exists
 	data, err := memFS.ReadFile("/keys/test-ns/key-a.json")
-	if err != nil {
-		t.Fatalf("Final file doesn't exist: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Verify it's valid JSON
 	var keyData keyFileData
-	if err := json.Unmarshal(data, &keyData); err != nil {
-		t.Errorf("Final file contains invalid JSON: %v", err)
-	}
-
-	// Note: We can't easily test for temporary file cleanup in MemFileSystem
-	// since it writes atomically without creating intermediate temp files
-	// The OSFileSystem implementation uses os.CreateTemp which handles cleanup
+	err = json.Unmarshal(data, &keyData)
+	require.NoError(t, err)
 }
 
 func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
@@ -333,14 +280,8 @@ func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-
-	// The key manager should be created (validation happens when creating keys)
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
-
-	// Creating a key with the invalid key type should fail
-	// (This test now validates the key type at key creation time)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported key type")
 }
 
 func TestNewDiskKeyManager_EmptyKeysPath(t *testing.T) {
@@ -348,29 +289,19 @@ func TestNewDiskKeyManager_EmptyKeysPath(t *testing.T) {
 	_, err := NewDiskKeyManager(DiskKeyManagerConfig{
 		FileSystem: memFS,
 	})
-	if err == nil {
-		t.Error("NewDiskKeyManager succeeded with empty keys_path, expected error")
-	}
+	assert.Error(t, err)
 }
 
 func TestNewDiskKeyManager_DefaultsToOSFileSystem(t *testing.T) {
-	// This test just verifies the code path compiles and runs
-	// We can't easily test actual OS filesystem without creating temp dirs
-	// but we verify the default behavior exists
 	tempDir := t.TempDir()
 
 	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
 		KeyType:  KeyTypeECP256,
 		KeysPath: tempDir,
-		// FileSystem not provided, should default to OSFileSystem
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if km.fs == nil {
-		t.Error("FileSystem is nil after NewDiskKeyManager")
-	}
+	assert.NotNil(t, km.fs)
 }
 
 func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
@@ -383,13 +314,9 @@ func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
 		KeysPath:   "/keys",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if km.algorithm != "ES256" {
-		t.Errorf("Expected algorithm ES256, got %s", km.algorithm)
-	}
+	assert.Equal(t, "ES256", km.algorithm)
 
 	// Configure RSA-2048 but explicitly ask for "RS512" (non-default)
 	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
@@ -398,22 +325,17 @@ func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
 		KeysPath:   "/keys2",
 		FileSystem: memFS,
 	})
-	if err != nil {
-		t.Fatalf("NewDiskKeyManager failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if km2.algorithm != "RS512" {
-		t.Errorf("Expected algorithm RS512, got %s", km2.algorithm)
-	}
+	assert.Equal(t, "RS512", km2.algorithm)
 
 	// Create a key and verify it uses the configured algorithm
 	ctx := context.Background()
-	key, err := km2.CreateKey(ctx, "test", "key-a")
-	if err != nil {
-		t.Fatalf("CreateKey failed: %v", err)
-	}
+	h, _ := km2.GetKeyHandle(ctx, "test", "key-a")
+	err = h.Rotate(ctx)
+	require.NoError(t, err)
 
-	if key.Algorithm != "RS512" {
-		t.Errorf("Expected key algorithm RS512, got %s", key.Algorithm)
-	}
+	_, alg, err := h.Metadata(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "RS512", alg)
 }

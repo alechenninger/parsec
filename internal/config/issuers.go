@@ -48,9 +48,9 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 	return registry, nil
 }
 
-// buildKeyManagerRegistry creates a map of KeyManager instances from configuration
-func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.KeyManager, error) {
-	registry := make(map[string]keymanager.KeyManager)
+// buildKeyManagerRegistry creates a map of KeyProvider instances from configuration
+func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.KeyProvider, error) {
+	registry := make(map[string]keymanager.KeyProvider)
 
 	for _, cfg := range configs {
 		if cfg.ID == "" {
@@ -67,7 +67,7 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 		}
 		keyType := keymanager.KeyType(cfg.KeyType)
 
-		var km keymanager.KeyManager
+		var km keymanager.KeyProvider
 		var err error
 
 		switch cfg.Type {
@@ -115,7 +115,7 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 }
 
 // newIssuer creates an issuer from configuration
-func newIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyProvider, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
 	switch cfg.Type {
 	case "stub":
 		return newStubIssuer(cfg)
@@ -176,7 +176,7 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 
 // newSigningTransactionTokenIssuer creates a signing transaction token issuer.
 // This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
-func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyManager, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyProvider, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
 		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}

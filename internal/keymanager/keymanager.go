@@ -3,26 +3,60 @@ package keymanager
 import (
 	"context"
 	"crypto"
+	"errors"
+
+	"github.com/alechenninger/parsec/internal/service"
 )
 
-// KeyManager manages cryptographic keys using stable key names within a namespace.
-// Each KeyManager instance is configured with a specific key type at construction.
-// The Key.ID is a backend-specific identifier used as the kid in JWTs and JWKS.
-type KeyManager interface {
-	// CreateKey creates a key that can be later retrieved by namespace and name.
-	// namespace: A scoping identifier (e.g. trust domain or token type URN).
-	// keyName: A stable internal identifier for the key (e.g. "key-a").
-	//
-	// The key type is determined by the KeyManager instance configuration.
-	// When a key with the same namespace and keyName already exists, a new version is
-	// created with the same name but a different Key ID (kid). Implementations are
-	// expected to remove old key versions.
-	//
-	// Returns a Key with Key.ID being a unique identifier (used as kid in JWTs).
-	CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error)
+var (
+	// ErrKeyMismatch is returned when the key used for signing does not match the expected key ID
+	ErrKeyMismatch = errors.New("key mismatch during signing")
+)
 
-	// GetKey retrieves the current key for a specific namespace and keyName for signing operations.
-	GetKey(ctx context.Context, namespace string, keyName string) (*Key, error)
+// KeyID is a unique identifier for a cryptographic key
+type KeyID string
+
+// Algorithm is a cryptographic algorithm identifier (e.g., "ES256", "RS256")
+type Algorithm string
+
+// KeyHandle represents a logical key version (e.g. a specific file or KMS key version/alias).
+// It provides access to signing operations and key metadata.
+type KeyHandle interface {
+	// Sign signs data. Returns signature and the ID of the key actually used.
+	// This allows callers to verify if the key rotated underneath them (if using aliases).
+	Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) (signature []byte, usedKeyID string, err error)
+
+	// Metadata returns the expected Key ID and Algorithm for this handle.
+	Metadata(ctx context.Context) (keyID string, alg string, err error)
+
+	// Public returns the public key.
+	Public(ctx context.Context) (crypto.PublicKey, error)
+
+	// Rotate rotates this key (creates a new version).
+	Rotate(ctx context.Context) error
+}
+
+// RotatingSigner manages active keys and rotation.
+type RotatingSigner interface {
+	// GetCurrentSigner returns a signer bound to the provided context and the current active key.
+	// It returns the signer (for use with JWT lib) and the metadata (kid, alg) for JWT headers.
+	// The returned Signer detects key mismatches (race conditions) internally.
+	GetCurrentSigner(ctx context.Context) (signer crypto.Signer, keyID KeyID, alg Algorithm, err error)
+
+	// PublicKeys returns the current set of valid public keys.
+	PublicKeys(ctx context.Context) ([]service.PublicKey, error)
+
+	// Start begins background rotation tasks.
+	Start(ctx context.Context) error
+
+	// Stop stops background tasks.
+	Stop()
+}
+
+// KeyProvider manages creating/retrieving KeyHandles.
+type KeyProvider interface {
+	// GetKeyHandle returns a handle for a specific namespace and key name.
+	GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error)
 }
 
 // KeyType represents the cryptographic key type
@@ -34,28 +68,3 @@ const (
 	KeyTypeRSA2048 KeyType = "RSA-2048"
 	KeyTypeRSA4096 KeyType = "RSA-4096"
 )
-
-// Key represents a private key for signing
-type Key struct {
-	// ID is the actual key identifier (kid) used in JWTs
-	// This may change with each version for some backends (e.g., AWS KMS key ID)
-	ID string
-
-	// Algorithm is the JWT signing algorithm (e.g., "ES256", "RS256")
-	Algorithm string
-
-	// Signer is the crypto.Signer for signing operations
-	Signer crypto.Signer
-}
-
-// PublicKey represents a public key with JWK metadata
-type PublicKey struct {
-	// ID is the key identifier (kid) used in JWKs
-	ID string
-
-	// Algorithm is the JWT signing algorithm (e.g., "ES256", "RS256")
-	Algorithm string
-
-	// PublicKey is the actual public key material
-	PublicKey crypto.PublicKey
-}

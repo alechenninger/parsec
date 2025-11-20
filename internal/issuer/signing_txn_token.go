@@ -24,7 +24,7 @@ type SigningTransactionTokenIssuerConfig struct {
 	TTL time.Duration
 
 	// KeyManager handles key rotation and signing (also provides the signing algorithm)
-	KeyManager *keymanager.RotatingKeyManager
+	KeyManager keymanager.RotatingSigner
 
 	// TransactionContextMappers build the "tctx" claim
 	TransactionContextMappers []service.ClaimMapper
@@ -37,17 +37,11 @@ type SigningTransactionTokenIssuerConfig struct {
 }
 
 // SigningTransactionTokenIssuer issues signed transaction tokens per draft-ietf-oauth-transaction-tokens.
-// It uses a RotatingKeyManager for key rotation and signing operations.
-//
-// This issuer differs from unsigned/stub issuers in that it:
-// - Issues tokens following the OAuth transaction token specification
-// - Performs signing itself using a key manager abstraction
-// - Supports key rotation for enhanced security
-// - As opposed to delegating to an external transaction token service
+// It uses a RotatingSigner for key rotation and signing operations.
 type SigningTransactionTokenIssuer struct {
 	issuerURL                 string
 	ttl                       time.Duration
-	keyManager                *keymanager.RotatingKeyManager
+	keyManager                keymanager.RotatingSigner
 	transactionContextMappers []service.ClaimMapper
 	requestContextMappers     []service.ClaimMapper
 	clock                     clock.Clock
@@ -157,7 +151,7 @@ func (i *SigningTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *ser
 
 	// Sign the token with the current key
 	signedToken, err := jwt.Sign(token,
-		jwt.WithKey(jwa.SignatureAlgorithm(algorithm), signer, jws.WithProtectedHeaders(headers)))
+		jwt.WithKey(jwa.SignatureAlgorithm(string(algorithm)), signer, jws.WithProtectedHeaders(headers)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign token: %w", err)
 	}

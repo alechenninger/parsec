@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
-	"io"
 	"math/big"
 	"strings"
 
@@ -16,32 +15,21 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
-// AWSKMSKeyManager is a KeyManager backed by AWS KMS.
-// It uses KMS aliases to provide stable slot identifiers while rotating the underlying CMKs.
+// AWSKMSKeyManager is a KeyProvider backed by AWS KMS.
 type AWSKMSKeyManager struct {
 	client      *kms.Client
-	keyType     KeyType // The key type this manager creates
-	algorithm   string  // The signing algorithm to use
-	aliasPrefix string  // e.g., "alias/parsec/"
+	keyType     KeyType
+	algorithm   string
+	aliasPrefix string
 }
 
 // AWSKMSConfig configures the AWS KMS key manager
 type AWSKMSConfig struct {
-	// KeyType is the type of keys this manager creates
-	KeyType KeyType
-
-	// Algorithm is the signing algorithm to use
-	Algorithm string
-
-	// Region is the AWS region (e.g., "us-east-1")
-	Region string
-
-	// AliasPrefix is the prefix for KMS aliases (e.g., "alias/parsec/")
-	// Must start with "alias/"
+	KeyType     KeyType
+	Algorithm   string
+	Region      string
 	AliasPrefix string
-
-	// Client is an optional pre-configured KMS client for testing
-	Client *kms.Client
+	Client      *kms.Client
 }
 
 // NewAWSKMSKeyManager creates a new AWS KMS key manager
@@ -89,14 +77,19 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 	}, nil
 }
 
-// CreateKey creates a new KMS key with the given stable namespace and keyName.
-// If an alias with this name already exists, it creates a new CMK, updates the alias,
-// and schedules the old CMK for deletion (7 days).
-func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
+func (m *AWSKMSKeyManager) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+	return &awsKeyHandle{
+		manager:   m,
+		namespace: namespace,
+		keyName:   keyName,
+	}, nil
+}
+
+func (m *AWSKMSKeyManager) rotateKey(ctx context.Context, namespace string, keyName string) error {
 	// 1. Create new KMS key (CMK) using configured keyType
 	keySpec, err := keySpecFromKeyType(m.keyType)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	createResp, err := m.client.CreateKey(ctx, &kms.CreateKeyInput{
@@ -104,7 +97,7 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyN
 		KeyUsage: types.KeyUsageTypeSignVerify,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create KMS key: %w", err)
+		return fmt.Errorf("failed to create KMS key: %w", err)
 	}
 
 	newKeyID := aws.ToString(createResp.KeyMetadata.KeyId)
@@ -115,27 +108,25 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyN
 	if err != nil && oldKeyID == "" {
 		// Alias doesn't exist, that's fine
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to check existing alias: %w", err)
+		return fmt.Errorf("failed to check existing alias: %w", err)
 	}
 
 	// 3. Create or update alias to point to new key
 	if oldKeyID != "" {
-		// Update existing alias
 		_, err = m.client.UpdateAlias(ctx, &kms.UpdateAliasInput{
 			AliasName:   aws.String(aliasName),
 			TargetKeyId: aws.String(newKeyID),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to update alias: %w", err)
+			return fmt.Errorf("failed to update alias: %w", err)
 		}
 	} else {
-		// Create new alias
 		_, err = m.client.CreateAlias(ctx, &kms.CreateAliasInput{
 			AliasName:   aws.String(aliasName),
 			TargetKeyId: aws.String(newKeyID),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create alias: %w", err)
+			return fmt.Errorf("failed to create alias: %w", err)
 		}
 	}
 
@@ -146,73 +137,111 @@ func (m *AWSKMSKeyManager) CreateKey(ctx context.Context, namespace string, keyN
 			PendingWindowInDays: aws.Int32(7),
 		})
 		if err != nil {
-			// Log but don't fail - the new key is already created and aliased
 			fmt.Printf("Warning: failed to schedule old key %s for deletion: %v\n", oldKeyID, err)
 		}
 	}
 
-	// 5. Create signer
-	// Use configured algorithm
-
-	signer := &kmsSigner{
-		client:    m.client,
-		keyID:     newKeyID,
-		algorithm: m.algorithm,
-	}
-
-	return &Key{
-		ID:        newKeyID,
-		Algorithm: m.algorithm,
-		Signer:    signer,
-	}, nil
+	return nil
 }
 
-// GetKey retrieves a key by its stable namespace and keyName (resolves alias) for signing operations
-func (m *AWSKMSKeyManager) GetKey(ctx context.Context, namespace string, keyName string) (*Key, error) {
-	aliasName := m.aliasName(namespace, keyName)
-
-	// Resolve alias to actual KMS key ID
-	actualKeyID, err := m.getKeyIDFromAlias(ctx, aliasName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve alias %s: %w", aliasName, err)
-	}
-	if actualKeyID == "" {
-		return nil, fmt.Errorf("alias not found: %s", aliasName)
-	}
-
-	signer := &kmsSigner{
-		client:    m.client,
-		keyID:     actualKeyID,
-		algorithm: m.algorithm,
-	}
-
-	return &Key{
-		ID:        actualKeyID,
-		Algorithm: m.algorithm,
-		Signer:    signer,
-	}, nil
-}
-
-func (m *AWSKMSKeyManager) aliasName(namespace, keyName string) string {
-	// Sanitize namespace by replacing colons with underscores (colons not allowed in alias names)
-	sanitizedNS := strings.ReplaceAll(namespace, ":", "_")
-	return fmt.Sprintf("%s%s/%s", m.aliasPrefix, sanitizedNS, keyName)
-}
-
-// getKeyIDFromAlias resolves an alias to a KMS key ID
 func (m *AWSKMSKeyManager) getKeyIDFromAlias(ctx context.Context, aliasName string) (string, error) {
 	resp, err := m.client.DescribeKey(ctx, &kms.DescribeKeyInput{
 		KeyId: aws.String(aliasName),
 	})
 	if err != nil {
-		// Check if it's a not found error
-		return "", nil
+		return "", nil // Assume not found if error
 	}
-
 	return aws.ToString(resp.KeyMetadata.KeyId), nil
 }
 
-// keySpecFromKeyType converts our KeyType to AWS KMS KeySpec
+func (m *AWSKMSKeyManager) aliasName(namespace, keyName string) string {
+	sanitizedNS := strings.ReplaceAll(namespace, ":", "_")
+	return fmt.Sprintf("%s%s/%s", m.aliasPrefix, sanitizedNS, keyName)
+}
+
+// awsKeyHandle implements KeyHandle
+type awsKeyHandle struct {
+	manager   *AWSKMSKeyManager
+	namespace string
+	keyName   string
+}
+
+func (h *awsKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
+	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+
+	// Determine signing algorithm
+	var signingAlg types.SigningAlgorithmSpec
+	switch h.manager.algorithm {
+	case "ES256":
+		signingAlg = types.SigningAlgorithmSpecEcdsaSha256
+	case "ES384":
+		signingAlg = types.SigningAlgorithmSpecEcdsaSha384
+	case "RS256":
+		signingAlg = types.SigningAlgorithmSpecRsassaPkcs1V15Sha256
+	default:
+		return nil, "", fmt.Errorf("unsupported algorithm: %s", h.manager.algorithm)
+	}
+
+	// Call KMS Sign using ALIAS
+	// KMS automatically resolves alias to current key ID
+	resp, err := h.manager.client.Sign(ctx, &kms.SignInput{
+		KeyId:            aws.String(aliasName),
+		Message:          digest,
+		MessageType:      types.MessageTypeDigest,
+		SigningAlgorithm: signingAlg,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("KMS sign failed: %w", err)
+	}
+
+	usedKeyID := aws.ToString(resp.KeyId)
+
+	var signature []byte
+	if h.manager.algorithm == "ES256" || h.manager.algorithm == "ES384" {
+		signature, err = convertDERToRawECDSA(resp.Signature)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		signature = resp.Signature
+	}
+
+	return signature, usedKeyID, nil
+}
+
+func (h *awsKeyHandle) Metadata(ctx context.Context) (string, string, error) {
+	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+	keyID, err := h.manager.getKeyIDFromAlias(ctx, aliasName)
+	if err != nil {
+		return "", "", err
+	}
+	if keyID == "" {
+		return "", "", fmt.Errorf("alias not found: %s", aliasName)
+	}
+	return keyID, h.manager.algorithm, nil
+}
+
+func (h *awsKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
+	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+	resp, err := h.manager.client.GetPublicKey(ctx, &kms.GetPublicKeyInput{
+		KeyId: aws.String(aliasName),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pubKey, err := x509.ParsePKIXPublicKey(resp.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	return pubKey, nil
+}
+
+func (h *awsKeyHandle) Rotate(ctx context.Context) error {
+	return h.manager.rotateKey(ctx, h.namespace, h.keyName)
+}
+
+// Helper functions
 func keySpecFromKeyType(keyType KeyType) (types.KeySpec, error) {
 	switch keyType {
 	case KeyTypeECP256:
@@ -228,7 +257,6 @@ func keySpecFromKeyType(keyType KeyType) (types.KeySpec, error) {
 	}
 }
 
-// algorithmFromKeyType returns the JWT algorithm for a KeyType
 func algorithmFromKeyType(keyType KeyType) (string, error) {
 	switch keyType {
 	case KeyTypeECP256:
@@ -242,71 +270,6 @@ func algorithmFromKeyType(keyType KeyType) (string, error) {
 	}
 }
 
-// kmsSigner implements crypto.Signer using AWS KMS
-type kmsSigner struct {
-	client    *kms.Client
-	keyID     string
-	algorithm string
-	publicKey crypto.PublicKey // Cached public key
-}
-
-// Public returns the public key
-func (s *kmsSigner) Public() crypto.PublicKey {
-	if s.publicKey != nil {
-		return s.publicKey
-	}
-
-	// Fetch public key from KMS
-	resp, err := s.client.GetPublicKey(context.Background(), &kms.GetPublicKeyInput{
-		KeyId: aws.String(s.keyID),
-	})
-	if err != nil {
-		return nil
-	}
-
-	pubKey, err := x509.ParsePKIXPublicKey(resp.PublicKey)
-	if err != nil {
-		return nil
-	}
-
-	s.publicKey = pubKey
-	return pubKey
-}
-
-// Sign signs the digest using KMS
-func (s *kmsSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	// Determine signing algorithm
-	var signingAlg types.SigningAlgorithmSpec
-	switch s.algorithm {
-	case "ES256":
-		signingAlg = types.SigningAlgorithmSpecEcdsaSha256
-	case "ES384":
-		signingAlg = types.SigningAlgorithmSpecEcdsaSha384
-	case "RS256":
-		signingAlg = types.SigningAlgorithmSpecRsassaPkcs1V15Sha256
-	default:
-		return nil, fmt.Errorf("unsupported algorithm: %s", s.algorithm)
-	}
-
-	// Call KMS Sign
-	resp, err := s.client.Sign(context.Background(), &kms.SignInput{
-		KeyId:            aws.String(s.keyID),
-		Message:          digest,
-		MessageType:      types.MessageTypeDigest,
-		SigningAlgorithm: signingAlg,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("KMS sign failed: %w", err)
-	}
-
-	// For ECDSA, KMS returns DER-encoded signature, but crypto.Signer expects (r, s) concatenated
-	if s.algorithm == "ES256" || s.algorithm == "ES384" {
-		return convertDERToRawECDSA(resp.Signature)
-	}
-
-	return resp.Signature, nil
-}
-
 // convertDERToRawECDSA converts DER-encoded ECDSA signature to raw (r || s) format
 func convertDERToRawECDSA(derSig []byte) ([]byte, error) {
 	var sig struct {
@@ -317,6 +280,7 @@ func convertDERToRawECDSA(derSig []byte) ([]byte, error) {
 	}
 
 	// Determine key size (32 bytes for P-256, 48 bytes for P-384)
+	// Approximate logic based on bit len
 	keySize := (sig.R.BitLen() + 7) / 8
 	if keySize < 32 {
 		keySize = 32
@@ -332,6 +296,3 @@ func convertDERToRawECDSA(derSig []byte) ([]byte, error) {
 
 	return rawSig, nil
 }
-
-// Ensure kmsSigner implements crypto.Signer
-var _ crypto.Signer = (*kmsSigner)(nil)
