@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
@@ -105,12 +106,15 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 	})
 
 	t.Run("respects TTL expiration", func(t *testing.T) {
+		// Use a fake clock to deterministically test cache expiration
+		clk := clock.NewFixtureClock(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
+		
 		source := &mockCacheableDataSource{
 			name: "test-source",
-			ttl:  50 * time.Millisecond, // Very short TTL
+			ttl:  50 * time.Millisecond,
 		}
 
-		cached := NewInMemoryCachingDataSource(source)
+		cached := NewInMemoryCachingDataSource(source, WithClock(clk))
 
 		input := &service.DataSourceInput{
 			Subject: &trust.Result{
@@ -127,8 +131,8 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 			t.Errorf("expected 1 fetch, got %d", source.fetchCount)
 		}
 
-		// Wait for TTL to expire
-		time.Sleep(100 * time.Millisecond)
+		// Advance time past TTL
+		clk.Advance(100 * time.Millisecond)
 
 		// Second fetch - cache should have expired
 		_, err = cached.Fetch(ctx, input)
@@ -192,12 +196,15 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 	})
 
 	t.Run("cleanup removes expired entries", func(t *testing.T) {
+		// Use a fake clock to deterministically test cleanup
+		clk := clock.NewFixtureClock(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
+		
 		source := &mockCacheableDataSource{
 			name: "test-source",
 			ttl:  50 * time.Millisecond,
 		}
 
-		cached := NewInMemoryCachingDataSource(source).(*InMemoryCachingDataSource)
+		cached := NewInMemoryCachingDataSource(source, WithClock(clk)).(*InMemoryCachingDataSource)
 
 		input := &service.DataSourceInput{
 			Subject: &trust.Result{
@@ -212,8 +219,8 @@ func TestInMemoryCachingDataSource(t *testing.T) {
 			t.Errorf("expected cache size 1, got %d", cached.Size())
 		}
 
-		// Wait for expiration
-		time.Sleep(100 * time.Millisecond)
+		// Advance time past expiration
+		clk.Advance(100 * time.Millisecond)
 
 		// Cleanup
 		cached.Cleanup()

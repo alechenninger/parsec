@@ -100,6 +100,7 @@ func TestHermeticTokenExchange(t *testing.T) {
 		Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
 			Provider: allFixtures,
 			Strict:   true,
+			Clock:    clk,
 		}),
 	}
 
@@ -154,6 +155,7 @@ end`,
 			Transport: httpfixture.NewTransport(httpfixture.TransportConfig{
 				Provider: allFixtures,
 				Strict:   true,
+				Clock:    clk,
 			}),
 		},
 	})

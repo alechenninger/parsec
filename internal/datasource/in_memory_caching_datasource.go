@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
@@ -16,6 +17,7 @@ import (
 type InMemoryCachingDataSource struct {
 	source    service.DataSource
 	cacheable service.Cacheable
+	clock     clock.Clock
 	mu        sync.RWMutex
 	entries   map[string]*cacheEntry
 }
@@ -26,20 +28,38 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
+// InMemoryCachingDataSourceOption is a functional option for configuring InMemoryCachingDataSource
+type InMemoryCachingDataSourceOption func(*InMemoryCachingDataSource)
+
+// WithClock sets the clock for the caching data source
+func WithClock(clk clock.Clock) InMemoryCachingDataSourceOption {
+	return func(ds *InMemoryCachingDataSource) {
+		ds.clock = clk
+	}
+}
+
 // NewInMemoryCachingDataSource wraps a data source with in-memory caching if it implements Cacheable
 // Returns the original source if it doesn't implement Cacheable
-func NewInMemoryCachingDataSource(source service.DataSource) service.DataSource {
+func NewInMemoryCachingDataSource(source service.DataSource, opts ...InMemoryCachingDataSourceOption) service.DataSource {
 	cacheable, ok := source.(service.Cacheable)
 	if !ok {
 		// Source is not cacheable, return as-is
 		return source
 	}
 
-	return &InMemoryCachingDataSource{
+	ds := &InMemoryCachingDataSource{
 		source:    source,
 		cacheable: cacheable,
+		clock:     clock.NewSystemClock(), // Default to system clock
 		entries:   make(map[string]*cacheEntry),
 	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(ds)
+	}
+
+	return ds
 }
 
 // Name forwards to the underlying data source
@@ -66,7 +86,7 @@ func (c *InMemoryCachingDataSource) Fetch(ctx context.Context, input *service.Da
 
 	if found {
 		// Check if entry has expired
-		if entry.expiresAt.IsZero() || time.Now().Before(entry.expiresAt) {
+		if entry.expiresAt.IsZero() || c.clock.Now().Before(entry.expiresAt) {
 			return entry.result, nil
 		}
 		// Entry expired, remove it
@@ -86,7 +106,7 @@ func (c *InMemoryCachingDataSource) Fetch(ctx context.Context, input *service.Da
 		ttl := c.cacheable.CacheTTL()
 		var expiresAt time.Time
 		if ttl > 0 {
-			expiresAt = time.Now().Add(ttl)
+			expiresAt = c.clock.Now().Add(ttl)
 		}
 
 		c.mu.Lock()
@@ -106,7 +126,7 @@ func (c *InMemoryCachingDataSource) Cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	now := time.Now()
+	now := c.clock.Now()
 	for key, entry := range c.entries {
 		if !entry.expiresAt.IsZero() && now.After(entry.expiresAt) {
 			delete(c.entries, key)

@@ -70,8 +70,8 @@ func TestTokenExchangeFormEncoded(t *testing.T) {
 	}
 	defer srv.Stop(ctx)
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the server to be ready
+	waitForServer(t, 18080, 5*time.Second)
 
 	// Prepare form-encoded request (RFC 8693 format)
 	formData := url.Values{}
@@ -151,8 +151,8 @@ func TestTokenExchangeJSON(t *testing.T) {
 	}
 	defer srv.Stop(ctx)
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the server to be ready
+	waitForServer(t, 18081, 5*time.Second)
 
 	// Prepare JSON request
 	jsonData := `{

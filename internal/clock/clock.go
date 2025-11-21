@@ -19,6 +19,8 @@ type Ticker interface {
 type Clock interface {
 	// Now returns the current time
 	Now() time.Time
+	// Sleep pauses execution for the given duration
+	Sleep(d time.Duration)
 	// Ticker creates a new ticker that ticks at the given interval
 	Ticker(d time.Duration) Ticker
 }
@@ -34,6 +36,11 @@ func NewSystemClock() *SystemClock {
 // Now returns the current system time
 func (c *SystemClock) Now() time.Time {
 	return time.Now()
+}
+
+// Sleep pauses for the given duration using time.Sleep
+func (c *SystemClock) Sleep(d time.Duration) {
+	time.Sleep(d)
 }
 
 // Ticker creates a real time.Ticker wrapped in our interface
@@ -103,6 +110,12 @@ func (c *FixtureClock) Now() time.Time {
 // Set sets the fixture clock to a specific time
 func (c *FixtureClock) Set(t time.Time) {
 	c.currentTime = t
+}
+
+// Sleep advances the fixture clock by the given duration without actually sleeping
+// This simulates the passage of time deterministically in tests
+func (c *FixtureClock) Sleep(d time.Duration) {
+	c.Advance(d)
 }
 
 // Advance moves the fixture clock forward by the given duration

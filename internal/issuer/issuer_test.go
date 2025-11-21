@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alechenninger/parsec/internal/clock"
 	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
 )
@@ -114,6 +115,9 @@ func TestStubIssuer(t *testing.T) {
 	})
 
 	t.Run("generates unique token values", func(t *testing.T) {
+		// Use a fake clock to deterministically advance time
+		clk := clock.NewFixtureClock(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
+		
 		txnMappers := []service.ClaimMapper{service.NewPassthroughSubjectMapper()}
 		reqMappers := []service.ClaimMapper{service.NewRequestAttributesMapper()}
 		issuer := NewStubIssuer(StubIssuerConfig{
@@ -121,6 +125,7 @@ func TestStubIssuer(t *testing.T) {
 			TTL:                       5 * time.Minute,
 			TransactionContextMappers: txnMappers,
 			RequestContextMappers:     reqMappers,
+			Clock:                     clk,
 		})
 
 		issueCtx := &service.IssueContext{
@@ -131,7 +136,7 @@ func TestStubIssuer(t *testing.T) {
 		}
 
 		token1, _ := issuer.Issue(ctx, issueCtx)
-		time.Sleep(10 * time.Millisecond) // Ensure different timestamp
+		clk.Advance(10 * time.Millisecond) // Advance time deterministically
 		token2, _ := issuer.Issue(ctx, issueCtx)
 
 		if token1.Value == token2.Value {

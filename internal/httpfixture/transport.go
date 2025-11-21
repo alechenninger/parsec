@@ -5,7 +5,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
+
+	"github.com/alechenninger/parsec/internal/clock"
 )
 
 // Transport implements http.RoundTripper using a FixtureProvider
@@ -13,6 +14,7 @@ type Transport struct {
 	provider FixtureProvider
 	fallback http.RoundTripper // optional fallback to real HTTP
 	strict   bool              // if true, error when no fixture provided
+	clock    clock.Clock       // clock for simulating delays
 }
 
 // TransportConfig configures the fixture transport
@@ -20,14 +22,20 @@ type TransportConfig struct {
 	Provider FixtureProvider
 	Fallback http.RoundTripper // optional fallback transport
 	Strict   bool              // if true, error when provider returns nil
+	Clock    clock.Clock       // optional clock for delays (defaults to system clock)
 }
 
 // NewTransport creates a new fixture transport
 func NewTransport(config TransportConfig) *Transport {
+	clk := config.Clock
+	if clk == nil {
+		clk = clock.NewSystemClock()
+	}
 	return &Transport{
 		provider: config.Provider,
 		fallback: config.Fallback,
 		strict:   config.Strict,
+		clock:    clk,
 	}
 }
 
@@ -39,7 +47,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if fixture != nil {
 		// Apply delay if specified
 		if fixture.Delay != nil {
-			time.Sleep(*fixture.Delay)
+			t.clock.Sleep(*fixture.Delay)
 		}
 
 		// Create response from fixture

@@ -35,10 +35,10 @@ func TestJWKSEndpoint(t *testing.T) {
 		"test-km": km,
 	}
 	rotatingKM := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:          string(service.TokenTypeTransactionToken),
+		TokenType:           string(service.TokenTypeTransactionToken),
 		KeyProviderID:       "test-km",
 		KeyProviderRegistry: providerRegistry,
-		SlotStore:          slotStore,
+		SlotStore:           slotStore,
 	})
 
 	if err := rotatingKM.Start(ctx); err != nil {
@@ -75,8 +75,8 @@ func TestJWKSEndpoint(t *testing.T) {
 	}
 	defer srv.Stop(ctx)
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the server to be ready
+	waitForServer(t, 18082, 5*time.Second)
 
 	t.Run("GET /v1/jwks.json", func(t *testing.T) {
 		testJWKSEndpoint(t, "http://localhost:18082/v1/jwks.json")
@@ -190,10 +190,10 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		"test-km-1": km1,
 	}
 	rotatingKM1 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:          string(service.TokenTypeTransactionToken),
+		TokenType:           string(service.TokenTypeTransactionToken),
 		KeyProviderID:       "test-km-1",
 		KeyProviderRegistry: providerRegistry1,
-		SlotStore:          slotStore1,
+		SlotStore:           slotStore1,
 	})
 
 	if err := rotatingKM1.Start(ctx); err != nil {
@@ -217,10 +217,10 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 		"test-km-2": km2,
 	}
 	rotatingKM2 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:          string(service.TokenTypeAccessToken),
+		TokenType:           string(service.TokenTypeAccessToken),
 		KeyProviderID:       "test-km-2",
 		KeyProviderRegistry: providerRegistry2,
-		SlotStore:          slotStore2,
+		SlotStore:           slotStore2,
 	})
 
 	if err := rotatingKM2.Start(ctx); err != nil {
@@ -257,8 +257,8 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	}
 	defer srv.Stop(ctx)
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the server to be ready
+	waitForServer(t, 18083, 5*time.Second)
 
 	// Request JWKS
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -344,8 +344,8 @@ func TestJWKSWithUnsignedIssuer(t *testing.T) {
 	}
 	defer srv.Stop(ctx)
 
-	// Give the server a moment to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for the server to be ready
+	waitForServer(t, 18084, 5*time.Second)
 
 	// Request JWKS
 	client := &http.Client{Timeout: 5 * time.Second}
