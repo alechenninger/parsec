@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -157,3 +157,4 @@ func (h *memoryKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) 
 func (h *memoryKeyHandle) Rotate(ctx context.Context) error {
 	return h.manager.rotateKey(h.namespace, h.keyName)
 }
+

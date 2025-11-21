@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -68,3 +68,4 @@ const (
 	KeyTypeRSA2048 KeyType = "RSA-2048"
 	KeyTypeRSA4096 KeyType = "RSA-4096"
 )
+

@@ -11,7 +11,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwt"
 
 	"github.com/alechenninger/parsec/internal/clock"
-	"github.com/alechenninger/parsec/internal/keymanager"
+	"github.com/alechenninger/parsec/internal/keys"
 	"github.com/alechenninger/parsec/internal/service"
 )
 
@@ -24,7 +24,7 @@ type SigningTransactionTokenIssuerConfig struct {
 	TTL time.Duration
 
 	// KeyManager handles key rotation and signing (also provides the signing algorithm)
-	KeyManager keymanager.RotatingSigner
+	KeyManager keys.RotatingSigner
 
 	// TransactionContextMappers build the "tctx" claim
 	TransactionContextMappers []service.ClaimMapper
@@ -41,7 +41,7 @@ type SigningTransactionTokenIssuerConfig struct {
 type SigningTransactionTokenIssuer struct {
 	issuerURL                 string
 	ttl                       time.Duration
-	keyManager                keymanager.RotatingSigner
+	keyManager                keys.RotatingSigner
 	transactionContextMappers []service.ClaimMapper
 	requestContextMappers     []service.ClaimMapper
 	clock                     clock.Clock

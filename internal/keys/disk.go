@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -302,3 +302,4 @@ func (h *diskKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
 func (h *diskKeyHandle) Rotate(ctx context.Context) error {
 	return h.manager.rotateKey(h.namespace, h.keyName)
 }
+

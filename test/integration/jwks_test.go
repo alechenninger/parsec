@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/alechenninger/parsec/internal/issuer"
-	"github.com/alechenninger/parsec/internal/keymanager"
+	"github.com/alechenninger/parsec/internal/keys"
 	"github.com/alechenninger/parsec/internal/server"
 	"github.com/alechenninger/parsec/internal/service"
 	"github.com/alechenninger/parsec/internal/trust"
@@ -29,15 +29,15 @@ func TestJWKSEndpoint(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create a signing transaction token issuer with an in-memory key manager
-	km := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP256, "ES256")
-	slotStore := keymanager.NewInMemoryKeySlotStore()
-	kmRegistry := map[string]keymanager.KeyProvider{
+	km := keys.NewInMemoryKeyManager(keys.KeyTypeECP256, "ES256")
+	slotStore := keys.NewInMemoryKeySlotStore()
+	providerRegistry := map[string]keys.KeyProvider{
 		"test-km": km,
 	}
-	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+	rotatingKM := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
 		TokenType:          string(service.TokenTypeTransactionToken),
-		KeyManagerID:       "test-km",
-		KeyManagerRegistry: kmRegistry,
+		KeyProviderID:       "test-km",
+		KeyProviderRegistry: providerRegistry,
 		SlotStore:          slotStore,
 	})
 
@@ -184,15 +184,15 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create first issuer (transaction token with ECP256)
-	km1 := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP256, "ES256")
-	slotStore1 := keymanager.NewInMemoryKeySlotStore()
-	kmRegistry1 := map[string]keymanager.KeyProvider{
+	km1 := keys.NewInMemoryKeyManager(keys.KeyTypeECP256, "ES256")
+	slotStore1 := keys.NewInMemoryKeySlotStore()
+	providerRegistry1 := map[string]keys.KeyProvider{
 		"test-km-1": km1,
 	}
-	rotatingKM1 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+	rotatingKM1 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
 		TokenType:          string(service.TokenTypeTransactionToken),
-		KeyManagerID:       "test-km-1",
-		KeyManagerRegistry: kmRegistry1,
+		KeyProviderID:       "test-km-1",
+		KeyProviderRegistry: providerRegistry1,
 		SlotStore:          slotStore1,
 	})
 
@@ -211,15 +211,15 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 	// Create second issuer (access token with ECP384)
-	km2 := keymanager.NewInMemoryKeyManager(keymanager.KeyTypeECP384, "ES384")
-	slotStore2 := keymanager.NewInMemoryKeySlotStore()
-	kmRegistry2 := map[string]keymanager.KeyProvider{
+	km2 := keys.NewInMemoryKeyManager(keys.KeyTypeECP384, "ES384")
+	slotStore2 := keys.NewInMemoryKeySlotStore()
+	providerRegistry2 := map[string]keys.KeyProvider{
 		"test-km-2": km2,
 	}
-	rotatingKM2 := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+	rotatingKM2 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
 		TokenType:          string(service.TokenTypeAccessToken),
-		KeyManagerID:       "test-km-2",
-		KeyManagerRegistry: kmRegistry2,
+		KeyProviderID:       "test-km-2",
+		KeyProviderRegistry: providerRegistry2,
 		SlotStore:          slotStore2,
 	})
 

@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -22,14 +22,14 @@ const (
 	defaultCheckInterval     = 1 * time.Minute // How often to check for rotation
 )
 
-// RotatingKeyManager manages automatic key rotation using a KeyProvider
-type RotatingKeyManager struct {
-	tokenType          string                 // Token type URN (issuer identifier)
-	trustDomain        string                 // Trust domain for namespacing
-	keyManagerID       string                 // Current KeyManager to use for new keys
-	keyManagerRegistry map[string]KeyProvider // All available KeyProviders
-	slotStore          KeySlotStore
-	prepareTimeout     time.Duration // How long to wait before retrying a stuck "preparing" state
+// DualSlotRotatingSigner manages automatic key rotation using a KeyProvider
+type DualSlotRotatingSigner struct {
+	tokenType           string                 // Token type URN (issuer identifier)
+	trustDomain         string                 // Trust domain for namespacing
+	keyProviderID       string                 // Current KeyProvider to use for new keys
+	keyProviderRegistry map[string]KeyProvider // All available KeyProviders
+	slotStore           KeySlotStore
+	prepareTimeout      time.Duration // How long to wait before retrying a stuck "preparing" state
 
 	// Timing parameters:
 	//
@@ -63,14 +63,14 @@ type RotatingKeyManager struct {
 	ticker clock.Ticker
 }
 
-// RotatingKeyManagerConfig configures the RotatingKeyManager
-type RotatingKeyManagerConfig struct {
-	TokenType          string                 // Token type URN (issuer identifier)
-	TrustDomain        string                 // Trust domain for namespacing
-	KeyManagerID       string                 // Current KeyManager to use for new keys
-	KeyManagerRegistry map[string]KeyProvider // All available KeyProviders
-	SlotStore          KeySlotStore
-	Clock              clock.Clock
+// DualSlotRotatingSignerConfig configures the DualSlotRotatingSigner
+type DualSlotRotatingSignerConfig struct {
+	TokenType           string                 // Token type URN (issuer identifier)
+	TrustDomain         string                 // Trust domain for namespacing
+	KeyProviderID       string                 // Current KeyProvider to use for new keys
+	KeyProviderRegistry map[string]KeyProvider // All available KeyProviders
+	SlotStore           KeySlotStore
+	Clock               clock.Clock
 
 	// Optional timing overrides (uses defaults if not set)
 	KeyTTL            time.Duration
@@ -80,8 +80,8 @@ type RotatingKeyManagerConfig struct {
 	PrepareTimeout    time.Duration // How long to wait before retrying a stuck "preparing" state (default: 1 minute)
 }
 
-// NewRotatingKeyManager creates a new rotating key manager
-func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
+// NewDualSlotRotatingSigner creates a new dual-slot rotating signer
+func NewDualSlotRotatingSigner(cfg DualSlotRotatingSignerConfig) *DualSlotRotatingSigner {
 	clk := cfg.Clock
 	if clk == nil {
 		clk = clock.NewSystemClock()
@@ -112,23 +112,23 @@ func NewRotatingKeyManager(cfg RotatingKeyManagerConfig) *RotatingKeyManager {
 		prepareTimeout = 1 * time.Minute
 	}
 
-	return &RotatingKeyManager{
-		tokenType:          cfg.TokenType,
-		trustDomain:        cfg.TrustDomain,
-		keyManagerID:       cfg.KeyManagerID,
-		keyManagerRegistry: cfg.KeyManagerRegistry,
-		slotStore:          cfg.SlotStore,
-		keyTTL:             keyTTL,
-		rotationThreshold:  rotationThreshold,
-		gracePeriod:        gracePeriod,
-		checkInterval:      checkInterval,
-		prepareTimeout:     prepareTimeout,
-		clock:              clk,
+	return &DualSlotRotatingSigner{
+		tokenType:           cfg.TokenType,
+		trustDomain:         cfg.TrustDomain,
+		keyProviderID:       cfg.KeyProviderID,
+		keyProviderRegistry: cfg.KeyProviderRegistry,
+		slotStore:           cfg.SlotStore,
+		keyTTL:              keyTTL,
+		rotationThreshold:   rotationThreshold,
+		gracePeriod:         gracePeriod,
+		checkInterval:       checkInterval,
+		prepareTimeout:      prepareTimeout,
+		clock:               clk,
 	}
 }
 
 // keyName returns the stable key name for a slot position
-func (r *RotatingKeyManager) keyName(p SlotPosition) string {
+func (r *DualSlotRotatingSigner) keyName(p SlotPosition) string {
 	if p == SlotPositionA {
 		return "key-a"
 	}
@@ -136,7 +136,7 @@ func (r *RotatingKeyManager) keyName(p SlotPosition) string {
 }
 
 // namespace returns the namespace string for keys (combines trust domain and token type)
-func (r *RotatingKeyManager) namespace() string {
+func (r *DualSlotRotatingSigner) namespace() string {
 	if r.trustDomain == "" {
 		return r.tokenType
 	}
@@ -144,7 +144,7 @@ func (r *RotatingKeyManager) namespace() string {
 }
 
 // Start begins the background key rotation process
-func (r *RotatingKeyManager) Start(ctx context.Context) error {
+func (r *DualSlotRotatingSigner) Start(ctx context.Context) error {
 	// Ensure we have at least one key
 	if err := r.ensureInitialKey(ctx); err != nil {
 		return fmt.Errorf("failed to ensure initial key: %w", err)
@@ -165,14 +165,14 @@ func (r *RotatingKeyManager) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops the background rotation process
-func (r *RotatingKeyManager) Stop() {
+func (r *DualSlotRotatingSigner) Stop() {
 	if r.ticker != nil {
 		r.ticker.Stop()
 	}
 }
 
 // doRotationCheck is called periodically by the ticker to check for rotation needs
-func (r *RotatingKeyManager) doRotationCheck(ctx context.Context) {
+func (r *DualSlotRotatingSigner) doRotationCheck(ctx context.Context) {
 	if err := r.checkAndRotate(ctx); err != nil {
 		log.Printf("Error during key rotation check: %v", err)
 	}
@@ -206,7 +206,7 @@ func (s *contextSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOp
 }
 
 // GetCurrentSigner returns a crypto.Signer for the current active key along with its key ID and algorithm
-func (r *RotatingKeyManager) GetCurrentSigner(ctx context.Context) (crypto.Signer, KeyID, Algorithm, error) {
+func (r *DualSlotRotatingSigner) GetCurrentSigner(ctx context.Context) (crypto.Signer, KeyID, Algorithm, error) {
 	r.mu.RLock()
 	handle := r.activeHandle
 	internalID := r.activeInternalID
@@ -228,7 +228,7 @@ func (r *RotatingKeyManager) GetCurrentSigner(ctx context.Context) (crypto.Signe
 }
 
 // PublicKeys returns all non-expired public keys from cache
-func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
+func (r *DualSlotRotatingSigner) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
 	r.mu.RLock()
 	keys := make([]service.PublicKey, len(r.publicKeys))
 	copy(keys, r.publicKeys)
@@ -238,7 +238,7 @@ func (r *RotatingKeyManager) PublicKeys(ctx context.Context) ([]service.PublicKe
 }
 
 // ensureInitialKey ensures at least one key exists, generating key-a if needed
-func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
+func (r *DualSlotRotatingSigner) ensureInitialKey(ctx context.Context) error {
 	slots, version, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list slots: %w", err)
@@ -259,9 +259,9 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 	}
 
 	// Get current KeyProvider
-	km, ok := r.keyManagerRegistry[r.keyManagerID]
+	km, ok := r.keyProviderRegistry[r.keyProviderID]
 	if !ok {
-		return fmt.Errorf("key manager not found: %s", r.keyManagerID)
+		return fmt.Errorf("key provider not found: %s", r.keyProviderID)
 	}
 
 	keyName := r.keyName(SlotPositionA)
@@ -279,7 +279,7 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 	slotA := &KeySlot{
 		Position:            SlotPositionA,
 		TokenType:           r.tokenType,
-		KeyManagerID:        r.keyManagerID,
+		KeyProviderID:       r.keyProviderID,
 		RotationCompletedAt: &now,
 	}
 
@@ -292,7 +292,7 @@ func (r *RotatingKeyManager) ensureInitialKey(ctx context.Context) error {
 }
 
 // checkAndRotate checks if rotation is needed and performs it using two-phase rotation
-func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
+func (r *DualSlotRotatingSigner) checkAndRotate(ctx context.Context) error {
 	// 1. Read all slots and store version
 	slots, storeVersion, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
@@ -334,7 +334,7 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 
 	targetSlot.PreparingAt = &now
 	// Use current KeyProvider for new key
-	targetSlot.KeyManagerID = r.keyManagerID
+	targetSlot.KeyProviderID = r.keyProviderID
 	storeVersion, err = r.slotStore.SaveSlot(ctx, targetSlot, storeVersion)
 	if errors.Is(err, ErrVersionMismatch) {
 		return nil // Another process won, that's fine
@@ -344,9 +344,9 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 	}
 
 	// 4. Generate key and complete rotation using current KeyProvider
-	km, ok := r.keyManagerRegistry[r.keyManagerID]
+	km, ok := r.keyProviderRegistry[r.keyProviderID]
 	if !ok {
-		return fmt.Errorf("key manager not found: %s", r.keyManagerID)
+		return fmt.Errorf("key provider not found: %s", r.keyProviderID)
 	}
 
 	keyName := r.keyName(targetSlot.Position)
@@ -380,7 +380,7 @@ func (r *RotatingKeyManager) checkAndRotate(ctx context.Context) error {
 // selectSlotsForRotation determines which slot needs rotation and which slot to rotate to
 // Returns (sourceSlot, targetSlot) where sourceSlot has the key that needs rotation
 // and targetSlot is where the new key should be placed
-func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*KeySlot, *KeySlot) {
+func (r *DualSlotRotatingSigner) selectSlotsForRotation(slotA, slotB *KeySlot) (*KeySlot, *KeySlot) {
 	now := r.clock.Now()
 
 	// Helper to check if slot needs rotation
@@ -424,9 +424,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot B if it doesn't exist
 		if slotB == nil {
 			slotB = &KeySlot{
-				Position:     SlotPositionB,
-				TokenType:    r.tokenType,
-				KeyManagerID: r.keyManagerID,
+				Position:      SlotPositionB,
+				TokenType:     r.tokenType,
+				KeyProviderID: r.keyProviderID,
 			}
 		}
 		// Don't rotate if target slot (B) already has a recent key
@@ -445,9 +445,9 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 		// Initialize slot A if it doesn't exist (shouldn't happen but be safe)
 		if slotA == nil {
 			slotA = &KeySlot{
-				Position:     SlotPositionA,
-				TokenType:    r.tokenType,
-				KeyManagerID: r.keyManagerID,
+				Position:      SlotPositionA,
+				TokenType:     r.tokenType,
+				KeyProviderID: r.keyProviderID,
 			}
 		}
 		// Don't rotate if target slot (A) already has a recent key
@@ -465,7 +465,7 @@ func (r *RotatingKeyManager) selectSlotsForRotation(slotA, slotB *KeySlot) (*Key
 }
 
 // updateActiveKeyCache queries the state store and updates the cached active key and public keys
-func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
+func (r *DualSlotRotatingSigner) updateActiveKeyCache(ctx context.Context) error {
 	slots, _, err := r.slotStore.ListSlots(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list slots: %w", err)
@@ -508,16 +508,16 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 		}
 
 		// Get the KeyProvider that created this key
-		km, ok := r.keyManagerRegistry[slot.KeyManagerID]
+		km, ok := r.keyProviderRegistry[slot.KeyProviderID]
 		if !ok {
-			log.Printf("Warning: key manager %s not found for slot %s, skipping", slot.KeyManagerID, slot.Position)
+			log.Printf("Warning: key provider %s not found for slot %s, skipping", slot.KeyProviderID, slot.Position)
 			continue
 		}
 
 		keyName := r.keyName(slot.Position)
 		handle, err := km.GetKeyHandle(ctx, r.namespace(), keyName)
 		if err != nil {
-			log.Printf("Warning: failed to get handle %s from key manager: %v", slot.Position, err)
+			log.Printf("Warning: failed to get handle %s from key provider: %v", slot.Position, err)
 			continue
 		}
 
@@ -580,10 +580,10 @@ func (r *RotatingKeyManager) updateActiveKeyCache(ctx context.Context) error {
 		return errors.New("no keys available")
 	}
 
-	// Get the KeyManager that created the active key
-	km, ok := r.keyManagerRegistry[activeSlot.KeyManagerID]
+	// Get the KeyProvider that created the active key
+	km, ok := r.keyProviderRegistry[activeSlot.KeyProviderID]
 	if !ok {
-		return fmt.Errorf("key manager %s not found for active slot", activeSlot.KeyManagerID)
+		return fmt.Errorf("key provider %s not found for active slot", activeSlot.KeyProviderID)
 	}
 
 	keyName := r.keyName(activeSlot.Position)

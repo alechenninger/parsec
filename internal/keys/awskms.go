@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -296,3 +296,4 @@ func convertDERToRawECDSA(derSig []byte) ([]byte, error) {
 
 	return rawSig, nil
 }
+

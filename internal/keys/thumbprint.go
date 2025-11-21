@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"crypto"
@@ -126,3 +126,4 @@ func canonicalizeJWK(jwk map[string]interface{}) (string, error) {
 
 	return string(jsonBytes), nil
 }
+

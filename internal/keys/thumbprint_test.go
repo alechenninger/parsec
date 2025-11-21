@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"crypto/ecdsa"

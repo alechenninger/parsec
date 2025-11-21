@@ -9,7 +9,7 @@ import (
 
 	"github.com/alechenninger/parsec/internal/claims"
 	"github.com/alechenninger/parsec/internal/issuer"
-	"github.com/alechenninger/parsec/internal/keymanager"
+	"github.com/alechenninger/parsec/internal/keys"
 	"github.com/alechenninger/parsec/internal/mapper"
 	"github.com/alechenninger/parsec/internal/service"
 )
@@ -19,13 +19,13 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 	registry := service.NewSimpleRegistry()
 
 	// Build key manager registry from global config
-	kmRegistry, err := buildKeyManagerRegistry(cfg.KeyManagers)
+	providerRegistry, err := buildKeyProviderRegistry(cfg.KeyManagers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build key manager registry: %w", err)
 	}
 
 	// Create shared key slot store
-	slotStore := keymanager.NewInMemoryKeySlotStore()
+	slotStore := keys.NewInMemoryKeySlotStore()
 
 	for _, issuerCfg := range cfg.Issuers {
 		if issuerCfg.TokenType == "" {
@@ -36,7 +36,7 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 		tokenType := service.TokenType(issuerCfg.TokenType)
 
 		// Create issuer
-		iss, err := newIssuer(issuerCfg, cfg.TrustDomain, kmRegistry, slotStore)
+		iss, err := newIssuer(issuerCfg, cfg.TrustDomain, providerRegistry, slotStore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create issuer for token type %s: %w", issuerCfg.TokenType, err)
 		}
@@ -48,9 +48,9 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 	return registry, nil
 }
 
-// buildKeyManagerRegistry creates a map of KeyProvider instances from configuration
-func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.KeyProvider, error) {
-	registry := make(map[string]keymanager.KeyProvider)
+// buildKeyProviderRegistry creates a map of KeyProvider instances from configuration
+func buildKeyProviderRegistry(configs []KeyManagerConfig) (map[string]keys.KeyProvider, error) {
+	registry := make(map[string]keys.KeyProvider)
 
 	for _, cfg := range configs {
 		if cfg.ID == "" {
@@ -65,20 +65,20 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 		if cfg.KeyType == "" {
 			return nil, fmt.Errorf("key manager %s requires key_type", cfg.ID)
 		}
-		keyType := keymanager.KeyType(cfg.KeyType)
+		keyType := keys.KeyType(cfg.KeyType)
 
-		var km keymanager.KeyProvider
+		var km keys.KeyProvider
 		var err error
 
 		switch cfg.Type {
 		case "", "memory":
-			km = keymanager.NewInMemoryKeyManager(keyType, cfg.Algorithm)
+			km = keys.NewInMemoryKeyManager(keyType, cfg.Algorithm)
 
 		case "disk":
 			if cfg.KeysPath == "" {
 				return nil, fmt.Errorf("disk key manager %s requires keys_path", cfg.ID)
 			}
-			km, err = keymanager.NewDiskKeyManager(keymanager.DiskKeyManagerConfig{
+			km, err = keys.NewDiskKeyManager(keys.DiskKeyManagerConfig{
 				KeyType:   keyType,
 				Algorithm: cfg.Algorithm,
 				KeysPath:  cfg.KeysPath,
@@ -94,7 +94,7 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 			if cfg.AliasPrefix == "" {
 				return nil, fmt.Errorf("aws_kms key manager %s requires alias_prefix", cfg.ID)
 			}
-			km, err = keymanager.NewAWSKMSKeyManager(context.Background(), keymanager.AWSKMSConfig{
+			km, err = keys.NewAWSKMSKeyManager(context.Background(), keys.AWSKMSConfig{
 				KeyType:     keyType,
 				Algorithm:   cfg.Algorithm,
 				Region:      cfg.Region,
@@ -115,14 +115,14 @@ func buildKeyManagerRegistry(configs []KeyManagerConfig) (map[string]keymanager.
 }
 
 // newIssuer creates an issuer from configuration
-func newIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyProvider, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newIssuer(cfg IssuerConfig, trustDomain string, providerRegistry map[string]keys.KeyProvider, slotStore keys.KeySlotStore) (service.Issuer, error) {
 	switch cfg.Type {
 	case "stub":
 		return newStubIssuer(cfg)
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
 	case "transaction_token":
-		return newSigningTransactionTokenIssuer(cfg, trustDomain, kmRegistry, slotStore)
+		return newSigningTransactionTokenIssuer(cfg, trustDomain, providerRegistry, slotStore)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
@@ -176,7 +176,7 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 
 // newSigningTransactionTokenIssuer creates a signing transaction token issuer.
 // This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
-func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRegistry map[string]keymanager.KeyProvider, slotStore keymanager.KeySlotStore) (service.Issuer, error) {
+func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, providerRegistry map[string]keys.KeyProvider, slotStore keys.KeySlotStore) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
 		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}
@@ -187,7 +187,7 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRe
 	}
 
 	// Validate key manager exists in registry
-	if _, ok := kmRegistry[cfg.KeyManager]; !ok {
+	if _, ok := providerRegistry[cfg.KeyManager]; !ok {
 		return nil, fmt.Errorf("key manager not found: %s", cfg.KeyManager)
 	}
 
@@ -222,11 +222,11 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, kmRe
 	}
 
 	// Initialize rotating key manager with registry and token type
-	rotatingKM := keymanager.NewRotatingKeyManager(keymanager.RotatingKeyManagerConfig{
+	rotatingKM := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
 		TokenType:          cfg.TokenType,
 		TrustDomain:        trustDomain,
-		KeyManagerID:       cfg.KeyManager,
-		KeyManagerRegistry: kmRegistry,
+		KeyProviderID:       cfg.KeyManager,
+		KeyProviderRegistry: providerRegistry,
 		SlotStore:          slotStore,
 		PrepareTimeout:     1 * time.Minute,
 	})

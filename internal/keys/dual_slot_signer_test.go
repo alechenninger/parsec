@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -49,8 +49,8 @@ func (h *failKeyHandle) Rotate(ctx context.Context) error {
 	return h.handle.Rotate(ctx)
 }
 
-// Helper to create a test RotatingKeyManager with a fake clock and in memory storage
-func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyProvider) (*RotatingKeyManager, KeyProvider) {
+// Helper to create a test DualSlotRotatingSigner with a fake clock and in memory storage
+func newTestDualSlotRotatingSigner(t *testing.T, clk clock.Clock, slotStore KeySlotStore, keyManager KeyProvider) (*DualSlotRotatingSigner, KeyProvider) {
 	if keyManager == nil {
 		// Create an in-memory KeyProvider with EC-P256 key type
 		keyManager = NewInMemoryKeyManager(KeyTypeECP256, "ES256")
@@ -67,10 +67,10 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	}
 
 	// Create rotating key manager with short timings for testing
-	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
+	rm := NewDualSlotRotatingSigner(DualSlotRotatingSignerConfig{
 		TokenType:          testTokenType, // Test token type
-		KeyManagerID:       "test-km",
-		KeyManagerRegistry: kmRegistry,
+		KeyProviderID:       "test-km",
+		KeyProviderRegistry: kmRegistry,
 		SlotStore:          slotStore,
 		Clock:              clk,
 		// Short timings for faster tests
@@ -84,14 +84,14 @@ func newTestRotatingKeyManager(t *testing.T, clk clock.Clock, slotStore KeySlotS
 	return rm, keyManager
 }
 
-func TestRotatingKeyManager_RotationFailure_MaintainsOldKey(t *testing.T) {
+func TestDualSlotRotatingSigner_RotationFailure_MaintainsOldKey(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
 	// Setup backing KM that we can make fail
 	baseKM := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
 	mockKM := &failKeyProvider{InMemoryKeyManager: baseKM}
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, mockKM)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, mockKM)
 
 	ctx := context.Background()
 
@@ -131,10 +131,10 @@ func TestRotatingKeyManager_RotationFailure_MaintainsOldKey(t *testing.T) {
 	assert.Equal(t, keyID1, keyID3, "should maintain old key even after expiration if rotation fails")
 }
 
-func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
+func TestDualSlotRotatingSigner_InitialKeyGeneration(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -150,11 +150,11 @@ func TestRotatingKeyManager_InitialKeyGeneration(t *testing.T) {
 	assert.Equal(t, "ES256", string(algorithm))
 }
 
-func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
+func TestDualSlotRotatingSigner_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
 	// Use a specific time for the clock to make assertions clear
 	startTime := time.Date(2025, 10, 27, 12, 0, 0, 0, time.UTC)
 	clk := clock.NewFixtureClock(startTime)
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -184,10 +184,10 @@ func TestRotatingKeyManager_InitialKeyRotationCompletedAtIsNow(t *testing.T) {
 		"initial key RotationCompletedAt should equal clock time (not backdated)")
 }
 
-func TestRotatingKeyManager_InitialKeyInGracePeriod(t *testing.T) {
+func TestDualSlotRotatingSigner_InitialKeyInGracePeriod(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -205,10 +205,10 @@ func TestRotatingKeyManager_InitialKeyInGracePeriod(t *testing.T) {
 	assert.NotNil(t, signer)
 }
 
-func TestRotatingKeyManager_PublicKeysIncludesGracePeriodKeys(t *testing.T) {
+func TestDualSlotRotatingSigner_PublicKeysIncludesGracePeriodKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -227,10 +227,10 @@ func TestRotatingKeyManager_PublicKeysIncludesGracePeriodKeys(t *testing.T) {
 	assert.Equal(t, "sig", publicKeys[0].Use)
 }
 
-func TestRotatingKeyManager_KeyRotation(t *testing.T) {
+func TestDualSlotRotatingSigner_KeyRotation(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -267,10 +267,10 @@ func TestRotatingKeyManager_KeyRotation(t *testing.T) {
 	assert.NotEqual(t, string(keyID1), string(keyID3), "active key should change after grace period")
 }
 
-func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
+func TestDualSlotRotatingSigner_KeyExpiration(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -306,10 +306,10 @@ func TestRotatingKeyManager_KeyExpiration(t *testing.T) {
 	assert.NotEqual(t, publicKeys1[0].KeyID, publicKeys3[0].KeyID, "should have rotated to a new key")
 }
 
-func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
+func TestDualSlotRotatingSigner_AlternatingSlots(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -344,10 +344,10 @@ func TestRotatingKeyManager_AlternatingSlots(t *testing.T) {
 	assert.NotEqual(t, keyID1, keyID3, "third key should be different from first (new key in same slot)")
 }
 
-func TestRotatingKeyManager_SigningWorks(t *testing.T) {
+func TestDualSlotRotatingSigner_SigningWorks(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -384,10 +384,10 @@ func TestRotatingKeyManager_SigningWorks(t *testing.T) {
 	assert.Equal(t, signer.Public(), publicKeys[0].Key)
 }
 
-func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
+func TestDualSlotRotatingSigner_MultipleRotations(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -431,10 +431,10 @@ func TestRotatingKeyManager_MultipleRotations(t *testing.T) {
 	assert.Len(t, uniqueKeys, 4, "all key IDs should be unique")
 }
 
-func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
+func TestDualSlotRotatingSigner_SlotStoreOptimisticLocking(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -465,13 +465,13 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	require.NotNil(t, slotA, "should find slot-a")
 
 	// Test optimistic locking: Save with correct version should succeed
-	slotA.KeyManagerID = "test-km-2" // Modify something
+	slotA.KeyProviderID = "test-km-2" // Modify something
 	version2, err := slotStore.SaveSlot(ctx, slotA, version1)
 	require.NoError(t, err, "should succeed with correct version")
 	assert.NotEqual(t, version1, version2, "version should change after save")
 
 	// Try to save with old version - should fail
-	slotA.KeyManagerID = "test-km-3"
+	slotA.KeyProviderID = "test-km-3"
 	_, err = slotStore.SaveSlot(ctx, slotA, version1) // Old version
 	assert.ErrorIs(t, err, ErrVersionMismatch, "should fail with old version")
 
@@ -481,9 +481,9 @@ func TestRotatingKeyManager_SlotStoreOptimisticLocking(t *testing.T) {
 	assert.NotEqual(t, version2, version3, "version should change after second save")
 }
 
-func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
+func TestDualSlotRotatingSigner_CachedPublicKeys(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
-	rm, kmProvider := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, kmProvider := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -516,10 +516,10 @@ func TestRotatingKeyManager_CachedPublicKeys(t *testing.T) {
 	assert.Equal(t, publicKeys1, publicKeys2)
 }
 
-func TestRotatingKeyManager_NoKeysBeforeStart(t *testing.T) {
+func TestDualSlotRotatingSigner_NoKeysBeforeStart(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -533,10 +533,10 @@ func TestRotatingKeyManager_NoKeysBeforeStart(t *testing.T) {
 	assert.Empty(t, publicKeys)
 }
 
-func TestRotatingKeyManager_StopPreventsRotation(t *testing.T) {
+func TestDualSlotRotatingSigner_StopPreventsRotation(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -562,10 +562,10 @@ func TestRotatingKeyManager_StopPreventsRotation(t *testing.T) {
 	assert.Equal(t, string(keyID1), string(keyID2))
 }
 
-func TestRotatingKeyManager_AlgorithmIsCorrect(t *testing.T) {
+func TestDualSlotRotatingSigner_AlgorithmIsCorrect(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 
-	rm, _ := newTestRotatingKeyManager(t, clk, nil, nil)
+	rm, _ := newTestDualSlotRotatingSigner(t, clk, nil, nil)
 
 	ctx := context.Background()
 
@@ -587,10 +587,10 @@ func TestRotatingKeyManager_AlgorithmIsCorrect(t *testing.T) {
 	assert.Equal(t, "ES256", publicKeys[0].Algorithm)
 }
 
-func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
+func TestDualSlotRotatingSigner_ExistingKeyInGracePeriod(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 	slotStore := NewInMemoryKeySlotStore()
-	rm, km := newTestRotatingKeyManager(t, clk, slotStore, nil)
+	rm, km := newTestDualSlotRotatingSigner(t, clk, slotStore, nil)
 
 	ctx := context.Background()
 
@@ -603,7 +603,7 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 	clk.Advance(10 * time.Second)
 
 	// Now create a new manager, reusing same slot store
-	rm2, _ := newTestRotatingKeyManager(t, clk, slotStore, km)
+	rm2, _ := newTestDualSlotRotatingSigner(t, clk, slotStore, km)
 
 	err = rm2.Start(ctx)
 	require.NoError(t, err)
@@ -615,7 +615,7 @@ func TestRotatingKeyManager_ExistingKeyInGracePeriod(t *testing.T) {
 	assert.Equal(t, startTime, *slots[0].RotationCompletedAt)
 }
 
-func TestRotatingKeyManager_Namespacing(t *testing.T) {
+func TestDualSlotRotatingSigner_Namespacing(t *testing.T) {
 	clk := clock.NewFixtureClock(time.Time{})
 	km := NewInMemoryKeyManager(KeyTypeECP256, "ES256")
 	kmRegistry := map[string]KeyProvider{"test-km": km}
@@ -623,11 +623,11 @@ func TestRotatingKeyManager_Namespacing(t *testing.T) {
 
 	trustDomain := "example.com"
 
-	rm := NewRotatingKeyManager(RotatingKeyManagerConfig{
+	rm := NewDualSlotRotatingSigner(DualSlotRotatingSignerConfig{
 		TokenType:          testTokenType,
 		TrustDomain:        trustDomain,
-		KeyManagerID:       "test-km",
-		KeyManagerRegistry: kmRegistry,
+		KeyProviderID:       "test-km",
+		KeyProviderRegistry: kmRegistry,
 		SlotStore:          slotStore,
 		Clock:              clk,
 		PrepareTimeout:     1 * time.Minute,

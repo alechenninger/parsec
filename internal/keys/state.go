@@ -1,4 +1,4 @@
-package keymanager
+package keys
 
 import (
 	"context"
@@ -28,7 +28,7 @@ const (
 type KeySlot struct {
 	Position            SlotPosition // A or B
 	TokenType           string       // Which token type (issuer) owns this slot
-	KeyManagerID        string       // Which KeyManager created this key
+	KeyProviderID        string       // Which KeyProvider created this key
 	PreparingAt         *time.Time   // When "preparing" state started (nil = not preparing)
 	RotationCompletedAt *time.Time   // When rotation completed (for grace period)
 }
@@ -103,7 +103,7 @@ func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 	copy := &KeySlot{
 		Position:     slot.Position,
 		TokenType:    slot.TokenType,
-		KeyManagerID: slot.KeyManagerID,
+		KeyProviderID: slot.KeyProviderID,
 	}
 
 	if slot.PreparingAt != nil {
@@ -118,3 +118,4 @@ func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 
 	return copy
 }
+
