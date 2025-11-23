@@ -13,7 +13,7 @@ import (
 	"github.com/alechenninger/parsec/internal/fs"
 )
 
-func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
+func TestDiskKeyProvider_CreateAndGetKey(t *testing.T) {
 	tests := []struct {
 		name    string
 		keyType KeyType
@@ -44,7 +44,7 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			memFS := fs.NewMemFileSystem()
-			km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+			kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 				KeyType:    tt.keyType,
 				KeysPath:   "/keys",
 				FileSystem: memFS,
@@ -52,10 +52,11 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 			require.NoError(t, err)
 
 			ctx := context.Background()
+			trustDomain := "test.example.com"
 			ns := "test-ns"
 			keyName := "key-a"
 
-			handle, err := km.GetKeyHandle(ctx, ns, keyName)
+			handle, err := kp.GetKeyHandle(ctx, trustDomain, ns, keyName)
 			require.NoError(t, err)
 
 			// Create a key (rotate)
@@ -84,9 +85,9 @@ func TestDiskKeyManager_CreateAndGetKey(t *testing.T) {
 	}
 }
 
-func TestDiskKeyManager_KeyRotation(t *testing.T) {
+func TestDiskKeyProvider_KeyRotation(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -94,10 +95,11 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 	ns := "test-ns"
 	keyName := "key-a"
 
-	handle, err := km.GetKeyHandle(ctx, ns, keyName)
+	handle, err := kp.GetKeyHandle(ctx, trustDomain, ns, keyName)
 	require.NoError(t, err)
 
 	// Create first key
@@ -117,9 +119,9 @@ func TestDiskKeyManager_KeyRotation(t *testing.T) {
 	assert.NotEqual(t, id1, id2)
 }
 
-func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
+func TestDiskKeyProvider_GetKeyNotFound(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -127,9 +129,10 @@ func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 
 	// Try to get a key that doesn't exist
-	handle, err := km.GetKeyHandle(ctx, "test-ns", "nonexistent")
+	handle, err := kp.GetKeyHandle(ctx, trustDomain, "test-ns", "nonexistent")
 	require.NoError(t, err) // Handle creation succeeds
 
 	// Operations should fail
@@ -137,9 +140,9 @@ func TestDiskKeyManager_GetKeyNotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
+func TestDiskKeyProvider_ConcurrentAccess(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -147,13 +150,14 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 	ns := "test-ns"
 
 	// Create initial keys
-	h1, _ := km.GetKeyHandle(ctx, ns, "key-a")
+	h1, _ := kp.GetKeyHandle(ctx, trustDomain, ns, "key-a")
 	h1.Rotate(ctx)
 
-	h2, _ := km.GetKeyHandle(ctx, ns, "key-b")
+	h2, _ := kp.GetKeyHandle(ctx, trustDomain, ns, "key-b")
 	h2.Rotate(ctx)
 
 	// Concurrent reads
@@ -170,7 +174,7 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 					keyName = "key-b"
 				}
 
-				h, _ := km.GetKeyHandle(ctx, ns, keyName)
+				h, _ := kp.GetKeyHandle(ctx, trustDomain, ns, keyName)
 				_, _, err := h.Metadata(ctx)
 				if err != nil {
 					t.Errorf("Metadata failed: %v", err)
@@ -182,9 +186,9 @@ func TestDiskKeyManager_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
+func TestDiskKeyProvider_CorruptedJSON(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -198,18 +202,19 @@ func TestDiskKeyManager_CorruptedJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 
 	// Try to get the corrupted key
-	handle, _ := km.GetKeyHandle(ctx, "test-ns", "key-a")
+	handle, _ := kp.GetKeyHandle(ctx, trustDomain, "test-ns", "key-a")
 	_, _, err = handle.Metadata(ctx)
 	assert.Error(t, err)
 }
 
-func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
+func TestDiskKeyProvider_FileSystemPersistence(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 
-	// Create first key manager instance
-	km1, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	// Create first key provider instance
+	kp1, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -217,18 +222,19 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 	ns := "test-ns"
 	keyName := "key-a"
 
 	// Create a key
-	h1, _ := km1.GetKeyHandle(ctx, ns, keyName)
+	h1, _ := kp1.GetKeyHandle(ctx, trustDomain, ns, keyName)
 	err = h1.Rotate(ctx)
 	require.NoError(t, err)
 
 	id1, _, _ := h1.Metadata(ctx)
 
-	// Create second key manager instance (simulating restart)
-	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	// Create second key provider instance (simulating restart)
+	kp2, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -236,16 +242,16 @@ func TestDiskKeyManager_FileSystemPersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Retrieve the key with second instance
-	h2, _ := km2.GetKeyHandle(ctx, ns, keyName)
+	h2, _ := kp2.GetKeyHandle(ctx, trustDomain, ns, keyName)
 	id2, _, err := h2.Metadata(ctx)
 	require.NoError(t, err)
 
 	assert.Equal(t, id1, id2)
 }
 
-func TestDiskKeyManager_AtomicWrite(t *testing.T) {
+func TestDiskKeyProvider_AtomicWrite(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -253,16 +259,17 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
+	trustDomain := "test.example.com"
 	ns := "test-ns"
 	keyName := "key-a"
 
 	// Create a key
-	h, _ := km.GetKeyHandle(ctx, ns, keyName)
+	h, _ := kp.GetKeyHandle(ctx, trustDomain, ns, keyName)
 	err = h.Rotate(ctx)
 	require.NoError(t, err)
 
-	// Verify the final file exists
-	data, err := memFS.ReadFile("/keys/test-ns/key-a.json")
+	// Verify the final file exists (trustDomain and namespace are separate directories)
+	data, err := memFS.ReadFile("/keys/test.example.com/test-ns/key-a.json")
 	require.NoError(t, err)
 
 	// Verify it's valid JSON
@@ -271,11 +278,11 @@ func TestDiskKeyManager_AtomicWrite(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
+func TestDiskKeyProvider_InvalidKeyType(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 
-	// Try to create a key manager with invalid type
-	_, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	// Try to create a key provider with invalid type
+	_, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyType("invalid"),
 		KeysPath:   "/keys",
 		FileSystem: memFS,
@@ -284,31 +291,31 @@ func TestDiskKeyManager_InvalidKeyType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported key type")
 }
 
-func TestNewDiskKeyManager_EmptyKeysPath(t *testing.T) {
+func TestNewDiskKeyProvider_EmptyKeysPath(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
-	_, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	_, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		FileSystem: memFS,
 	})
 	assert.Error(t, err)
 }
 
-func TestNewDiskKeyManager_DefaultsToOSFileSystem(t *testing.T) {
+func TestNewDiskKeyProvider_DefaultsToOSFileSystem(t *testing.T) {
 	tempDir := t.TempDir()
 
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:  KeyTypeECP256,
 		KeysPath: tempDir,
 	})
 	require.NoError(t, err)
 
-	assert.NotNil(t, km.fs)
+	assert.NotNil(t, kp.fs)
 }
 
-func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
+func TestDiskKeyProvider_ExplicitAlgorithm(t *testing.T) {
 	memFS := fs.NewMemFileSystem()
 
 	// Configure EC-P256 but explicitly ask for "ES256" (default)
-	km, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeECP256,
 		Algorithm:  "ES256",
 		KeysPath:   "/keys",
@@ -316,10 +323,10 @@ func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "ES256", km.algorithm)
+	assert.Equal(t, "ES256", kp.algorithm)
 
 	// Configure RSA-2048 but explicitly ask for "RS512" (non-default)
-	km2, err := NewDiskKeyManager(DiskKeyManagerConfig{
+	kp2, err := NewDiskKeyProvider(DiskKeyProviderConfig{
 		KeyType:    KeyTypeRSA2048,
 		Algorithm:  "RS512",
 		KeysPath:   "/keys2",
@@ -327,11 +334,12 @@ func TestDiskKeyManager_ExplicitAlgorithm(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "RS512", km2.algorithm)
+	assert.Equal(t, "RS512", kp2.algorithm)
 
 	// Create a key and verify it uses the configured algorithm
 	ctx := context.Background()
-	h, _ := km2.GetKeyHandle(ctx, "test", "key-a")
+	trustDomain := "test.example.com"
+	h, _ := kp2.GetKeyHandle(ctx, trustDomain, "test", "key-a")
 	err = h.Rotate(ctx)
 	require.NoError(t, err)
 

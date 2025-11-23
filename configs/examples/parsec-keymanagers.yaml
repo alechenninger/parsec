@@ -1,5 +1,5 @@
-# Example Parsec configuration showing different KeyManager options
-# This demonstrates how to configure key managers for signed JWT transaction tokens
+# Example Parsec configuration showing different KeyProvider and Signer options
+# This demonstrates how to configure key providers and signers for signed JWT transaction tokens
 
 server:
   bind_address: "0.0.0.0:8443"
@@ -7,55 +7,85 @@ server:
     cert_file: "/path/to/cert.pem"
     key_file: "/path/to/key.pem"
 
+trust_domain: "example.com"
+
 trust_store:
   type: "stub_store"
 
-# Global key manager definitions
-# Key managers can be shared across multiple issuers
-key_managers:
-  # In-memory KeyManager (default, good for testing)
+# Global key provider definitions
+# Key providers can be shared across multiple signers
+key_providers:
+  # In-memory key provider (good for testing)
   # Keys are stored in memory and lost on restart
-  - id: "memory-km"
+  - id: "memory-kp"
     type: "memory"
     key_type: "EC-P256"
 
-  # Disk-based KeyManager (persists keys to filesystem)
+  # Disk-based key provider (persists keys to filesystem)
   # Keys are stored on disk and survive pod restarts
-  - id: "disk-km"
+  - id: "disk-kp"
     type: "disk"
     key_type: "EC-P256"
     keys_path: "/var/lib/parsec/keys"
 
-  # AWS KMS KeyManager for US West region
+  # AWS KMS key provider for US West region
   # Requires AWS credentials (via env vars, IAM role, etc.)
   - id: "kms-us-west"
     type: "aws_kms"
     key_type: "EC-P256"
     region: "us-west-2"
-    alias_prefix: "alias/parsec/prod-"
+    alias_prefix: "alias/parsec/"
 
-  # AWS KMS KeyManager for US East region
+  # AWS KMS key provider for US East region
   - id: "kms-us-east"
     type: "aws_kms"
     key_type: "EC-P384"
     region: "us-east-1"
-    alias_prefix: "alias/parsec/east-"
+    alias_prefix: "alias/parsec/"
 
-  # AWS KMS KeyManager for EU region
+  # AWS KMS key provider for EU region
   - id: "kms-eu"
     type: "aws_kms"
     key_type: "EC-P256"
     region: "eu-west-1"
-    alias_prefix: "alias/parsec/eu-prod-"
+    alias_prefix: "alias/parsec/"
 
-# Issuers reference key managers by ID
+# Global signer definitions
+# Signers manage key rotation and can be shared across multiple issuers
+signers:
+  # In-memory signer for testing
+  - id: "memory-signer"
+    type: "dual_slot"
+    key_provider_id: "memory-kp"
+    key_ttl: "24h"
+    rotation_threshold: "6h"
+    grace_period: "2h"
+
+  # Disk-based signer
+  - id: "disk-signer"
+    type: "dual_slot"
+    key_provider_id: "disk-kp"
+    key_ttl: "24h"
+    rotation_threshold: "6h"
+    grace_period: "2h"
+
+  # AWS KMS signer for production
+  - id: "kms-signer-us-west"
+    type: "dual_slot"
+    key_provider_id: "kms-us-west"
+    namespace: "prod-tokens"   # Optional custom namespace
+    key_ttl: "168h"            # 7 days
+    rotation_threshold: "48h"  # 2 days
+    grace_period: "24h"        # 1 day
+
+# Issuers reference signers by ID
 issuers:
-  # Example 1: Using in-memory KeyManager
+  # Example 1: Using in-memory signer
   - token_type: "urn:ietf:params:oauth:token-type:txn_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "5m"
-    key_manager: "memory-km"
+    signer_id: "memory-signer"
     transaction_context:
       - type: "cel"
         expression: |
@@ -66,12 +96,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 2: Using disk-based KeyManager
+  # Example 2: Using disk-based signer
   - token_type: "urn:ietf:params:oauth:token-type:access_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "1h"
-    key_manager: "disk-km"
+    signer_id: "disk-signer"
     transaction_context:
       - type: "cel"
         expression: |
@@ -83,12 +113,12 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 3: Using AWS KMS (US West)
+  # Example 3: Using AWS KMS signer
   - token_type: "urn:x-custom:oauth:token-type:service_token"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "15m"
-    key_manager: "kms-us-west"
+    signer_id: "kms-signer-us-west"
     transaction_context:
       - type: "cel"
         expression: |
@@ -100,12 +130,13 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 4: Using AWS KMS (US East)
+  # Example 4: Multiple issuers sharing the same signer
+  # This demonstrates that different token types can share the same signing keys
   - token_type: "urn:ietf:params:oauth:token-type:jwt"
     type: "transaction_token"
     issuer_url: "https://parsec.example.com"
     ttl: "10m"
-    key_manager: "kms-us-east"
+    signer_id: "kms-signer-us-west"  # Reusing the same signer
     transaction_context:
       - type: "cel"
         expression: |
@@ -116,22 +147,6 @@ issuers:
       - type: "cel"
         expression: "{}"
 
-  # Example 5: Using AWS KMS (EU)
-  - token_type: "urn:ietf:params:oauth:token-type:id_token"
-    type: "transaction_token"
-    issuer_url: "https://parsec.example.com"
-    ttl: "30m"
-    key_manager: "kms-eu"
-    transaction_context:
-      - type: "cel"
-        expression: |
-          {
-            "user_id": subject.sub,
-            "tenant": subject.claims.tenant_id
-          }
-    request_context:
-      - type: "cel"
-        expression: "{}"
 
 data_sources: []
 

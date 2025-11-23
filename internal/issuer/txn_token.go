@@ -15,16 +15,16 @@ import (
 	"github.com/alechenninger/parsec/internal/service"
 )
 
-// SigningTransactionTokenIssuerConfig is the configuration for creating a signing transaction token issuer
-type SigningTransactionTokenIssuerConfig struct {
+// TransactionTokenIssuerConfig is the configuration for creating a transaction token issuer
+type TransactionTokenIssuerConfig struct {
 	// IssuerURL is the issuer URL (iss claim)
 	IssuerURL string
 
 	// TTL is the time-to-live for tokens
 	TTL time.Duration
 
-	// KeyManager handles key rotation and signing (also provides the signing algorithm)
-	KeyManager keys.RotatingSigner
+	// Signer handles key rotation and signing (also provides the signing algorithm)
+	Signer keys.RotatingSigner
 
 	// TransactionContextMappers build the "tctx" claim
 	TransactionContextMappers []service.ClaimMapper
@@ -36,28 +36,28 @@ type SigningTransactionTokenIssuerConfig struct {
 	Clock clock.Clock
 }
 
-// SigningTransactionTokenIssuer issues signed transaction tokens per draft-ietf-oauth-transaction-tokens.
+// TransactionTokenIssuer issues signed transaction tokens per draft-ietf-oauth-transaction-tokens.
 // It uses a RotatingSigner for key rotation and signing operations.
-type SigningTransactionTokenIssuer struct {
+type TransactionTokenIssuer struct {
 	issuerURL                 string
 	ttl                       time.Duration
-	keyManager                keys.RotatingSigner
+	signer                    keys.RotatingSigner
 	transactionContextMappers []service.ClaimMapper
 	requestContextMappers     []service.ClaimMapper
 	clock                     clock.Clock
 }
 
-// NewSigningTransactionTokenIssuer creates a new signing transaction token issuer
-func NewSigningTransactionTokenIssuer(cfg SigningTransactionTokenIssuerConfig) *SigningTransactionTokenIssuer {
+// NewTransactionTokenIssuer creates a new transaction token issuer
+func NewTransactionTokenIssuer(cfg TransactionTokenIssuerConfig) *TransactionTokenIssuer {
 	clk := cfg.Clock
 	if clk == nil {
 		clk = clock.NewSystemClock()
 	}
 
-	return &SigningTransactionTokenIssuer{
+	return &TransactionTokenIssuer{
 		issuerURL:                 cfg.IssuerURL,
 		ttl:                       cfg.TTL,
-		keyManager:                cfg.KeyManager,
+		signer:                    cfg.Signer,
 		transactionContextMappers: cfg.TransactionContextMappers,
 		requestContextMappers:     cfg.RequestContextMappers,
 		clock:                     clk,
@@ -66,7 +66,7 @@ func NewSigningTransactionTokenIssuer(cfg SigningTransactionTokenIssuerConfig) *
 
 // Issue implements the Issuer interface
 // Issues a signed JWT transaction token per draft-ietf-oauth-transaction-tokens
-func (i *SigningTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
+func (i *TransactionTokenIssuer) Issue(ctx context.Context, issueCtx *service.IssueContext) (*service.Token, error) {
 	// Apply transaction context mappers
 	transactionContext, err := issueCtx.ToClaims(ctx, i.transactionContextMappers)
 	if err != nil {
@@ -137,8 +137,8 @@ func (i *SigningTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *ser
 		}
 	}
 
-	// Get the current signer, key ID, and algorithm from the rotating key manager
-	signer, keyID, algorithm, err := i.keyManager.GetCurrentSigner(ctx)
+	// Get the current signer, key ID, and algorithm from the signer
+	signer, keyID, algorithm, err := i.signer.GetCurrentSigner(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current signer: %w", err)
 	}
@@ -165,8 +165,8 @@ func (i *SigningTransactionTokenIssuer) Issue(ctx context.Context, issueCtx *ser
 }
 
 // PublicKeys implements the Issuer interface
-// Returns all non-expired public keys from the rotating key manager
-func (i *SigningTransactionTokenIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
-	// Get all public keys from the rotating key manager (already in service.PublicKey format)
-	return i.keyManager.PublicKeys(ctx)
+// Returns all non-expired public keys from the rotating signer
+func (i *TransactionTokenIssuer) PublicKeys(ctx context.Context) ([]service.PublicKey, error) {
+	// Get all public keys from the rotating signer (already in service.PublicKey format)
+	return i.signer.PublicKeys(ctx)
 }

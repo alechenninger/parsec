@@ -29,14 +29,14 @@ Creates and manages keys in a specific backend:
 
 ```go
 type KeyProvider interface {
-    GetKeyHandle(ctx context.Context, namespace, keyName string) (KeyHandle, error)
+    GetKeyHandle(ctx context.Context, trustDomain, namespace, keyName string) (KeyHandle, error)
 }
 ```
 
 **Implementations**:
-- `InMemoryKeyManager` - Stores keys in memory (testing/development)
-- `DiskKeyManager` - Stores keys as JSON files on disk
-- `AWSKMSKeyManager` - Uses AWS KMS for key operations
+- `InMemoryKeyProvider` - Stores keys in memory (testing/development)
+- `DiskKeyProvider` - Stores keys as JSON files on disk
+- `AWSKMSKeyProvider` - Uses AWS KMS for key operations
 
 ### KeyHandle
 
@@ -72,26 +72,27 @@ Generated   Threshold          Grace Period        TTL
 ## Configuration Example
 
 ```go
-// Create key provider registry
-diskKM, _ := keys.NewDiskKeyManager(keys.DiskKeyManagerConfig{
-    KeyType:  keys.KeyTypeECP256,
-    KeysPath: "/var/keys",
+// Create key provider
+diskProvider, _ := keys.NewDiskKeyProvider(keys.DiskKeyProviderConfig{
+    KeyType:   keys.KeyTypeECP256,
+    Algorithm: "ES256",
+    KeysPath:  "/var/keys",
 })
 
 providerRegistry := map[string]keys.KeyProvider{
-    "prod-keys": diskKM,
+    "prod-keys": diskProvider,
 }
 
 // Create rotating signer
 signer := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-    TokenType:          "urn:ietf:params:oauth:token-type:txn_token",
-    TrustDomain:        "example.com",
+    Namespace:           "urn:ietf:params:oauth:token-type:txn_token",
+    TrustDomain:         "example.com",
     KeyProviderID:       "prod-keys",
     KeyProviderRegistry: providerRegistry,
-    SlotStore:          keys.NewInMemoryKeySlotStore(),
-    KeyTTL:             24 * time.Hour,
-    RotationThreshold:  6 * time.Hour,
-    GracePeriod:        2 * time.Hour,
+    SlotStore:           keys.NewInMemoryKeySlotStore(),
+    KeyTTL:              24 * time.Hour,
+    RotationThreshold:   6 * time.Hour,
+    GracePeriod:         2 * time.Hour,
 })
 
 signer.Start(context.Background())
@@ -105,9 +106,10 @@ defer signer.Stop()
 Suitable for single-pod deployments with persistent volumes:
 
 ```go
-km, err := keys.NewDiskKeyManager(keys.DiskKeyManagerConfig{
-    KeyType:  keys.KeyTypeECP256,
-    KeysPath: "/mnt/keys",
+provider, err := keys.NewDiskKeyProvider(keys.DiskKeyProviderConfig{
+    KeyType:   keys.KeyTypeECP256,
+    Algorithm: "ES256",
+    KeysPath:  "/mnt/keys",
 })
 ```
 
@@ -116,8 +118,9 @@ km, err := keys.NewDiskKeyManager(keys.DiskKeyManagerConfig{
 For production deployments requiring hardware security:
 
 ```go
-km, err := keys.NewAWSKMSKeyManager(ctx, keys.AWSKMSConfig{
+provider, err := keys.NewAWSKMSKeyProvider(ctx, keys.AWSKMSConfig{
     KeyType:     keys.KeyTypeECP256,
+    Algorithm:   "ES256",
     Region:      "us-east-1",
     AliasPrefix: "alias/parsec/",
 })
@@ -125,18 +128,16 @@ km, err := keys.NewAWSKMSKeyManager(ctx, keys.AWSKMSConfig{
 
 ## Supported Key Types
 
-- `KeyTypeECP256` - ECDSA P-256 (ES256)
-- `KeyTypeECP384` - ECDSA P-384 (ES384)
-- `KeyTypeRSA2048` - RSA 2048-bit (RS256)
-- `KeyTypeRSA4096` - RSA 4096-bit (RS256)
+- `KeyTypeECP256` - ECDSA P-256 (algorithm: ES256)
+- `KeyTypeECP384` - ECDSA P-384 (algorithm: ES384)
+- `KeyTypeRSA2048` - RSA 2048-bit (algorithm: RS256)
+- `KeyTypeRSA4096` - RSA 4096-bit (algorithm: RS512)
+
+Each key provider must be configured with both a `KeyType` and corresponding `Algorithm`.
 
 ## Key Namespacing
 
-Keys are namespaced by trust domain and token type to prevent collisions when multiple services share infrastructure:
-
-```
-namespace = trustDomain + ":" + tokenType
-```
+Keys are namespaced by trust domain and namespace (typically a token type) to prevent collisions when multiple services share infrastructure. The trust domain and namespace are passed separately to key providers, which combine them appropriately for their backend storage.
 
 ## Key Identifiers
 
@@ -151,5 +152,5 @@ Public key IDs (`kid` in JWTs) are computed as RFC 7638 JWK Thumbprints, ensurin
 
 ## Testing
 
-The package includes comprehensive tests for all providers and rotation scenarios. Use `InMemoryKeyManager` for unit tests.
+The package includes comprehensive tests for all providers and rotation scenarios. Use `InMemoryKeyProvider` for unit tests.
 

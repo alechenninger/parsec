@@ -24,7 +24,7 @@ const (
 
 // DualSlotRotatingSigner manages automatic key rotation using a KeyProvider
 type DualSlotRotatingSigner struct {
-	tokenType           string                 // Token type URN (issuer identifier)
+	namespace           string                 // Logical namespace for this signer
 	trustDomain         string                 // Trust domain for namespacing
 	keyProviderID       string                 // Current KeyProvider to use for new keys
 	keyProviderRegistry map[string]KeyProvider // All available KeyProviders
@@ -65,7 +65,7 @@ type DualSlotRotatingSigner struct {
 
 // DualSlotRotatingSignerConfig configures the DualSlotRotatingSigner
 type DualSlotRotatingSignerConfig struct {
-	TokenType           string                 // Token type URN (issuer identifier)
+	Namespace           string                 // Logical namespace for this signer
 	TrustDomain         string                 // Trust domain for namespacing
 	KeyProviderID       string                 // Current KeyProvider to use for new keys
 	KeyProviderRegistry map[string]KeyProvider // All available KeyProviders
@@ -113,7 +113,7 @@ func NewDualSlotRotatingSigner(cfg DualSlotRotatingSignerConfig) *DualSlotRotati
 	}
 
 	return &DualSlotRotatingSigner{
-		tokenType:           cfg.TokenType,
+		namespace:           cfg.Namespace,
 		trustDomain:         cfg.TrustDomain,
 		keyProviderID:       cfg.KeyProviderID,
 		keyProviderRegistry: cfg.KeyProviderRegistry,
@@ -133,14 +133,6 @@ func (r *DualSlotRotatingSigner) keyName(p SlotPosition) string {
 		return "key-a"
 	}
 	return "key-b"
-}
-
-// namespace returns the namespace string for keys (combines trust domain and token type)
-func (r *DualSlotRotatingSigner) namespace() string {
-	if r.trustDomain == "" {
-		return r.tokenType
-	}
-	return fmt.Sprintf("%s:%s", r.trustDomain, r.tokenType)
 }
 
 // Start begins the background key rotation process
@@ -244,28 +236,28 @@ func (r *DualSlotRotatingSigner) ensureInitialKey(ctx context.Context) error {
 		return fmt.Errorf("failed to list slots: %w", err)
 	}
 
-	// Check if we have any slots for this token type
+	// Check if we have any slots for this namespace
 	hasSlots := false
 	for _, slot := range slots {
-		if slot.TokenType == r.tokenType {
+		if slot.Namespace == r.namespace && slot.KeyProviderID == r.keyProviderID {
 			hasSlots = true
 			break
 		}
 	}
 
-	// If we have any slots for this token type, we're already initialized
+	// If we have any slots for this namespace, we're already initialized
 	if hasSlots {
 		return nil
 	}
 
 	// Get current KeyProvider
-	km, ok := r.keyProviderRegistry[r.keyProviderID]
+	provider, ok := r.keyProviderRegistry[r.keyProviderID]
 	if !ok {
 		return fmt.Errorf("key provider not found: %s", r.keyProviderID)
 	}
 
 	keyName := r.keyName(SlotPositionA)
-	handle, err := km.GetKeyHandle(ctx, r.namespace(), keyName)
+	handle, err := provider.GetKeyHandle(ctx, r.trustDomain, r.namespace, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to get key handle: %w", err)
 	}
@@ -278,7 +270,7 @@ func (r *DualSlotRotatingSigner) ensureInitialKey(ctx context.Context) error {
 	now := r.clock.Now()
 	slotA := &KeySlot{
 		Position:            SlotPositionA,
-		TokenType:           r.tokenType,
+		Namespace:           r.namespace,
 		KeyProviderID:       r.keyProviderID,
 		RotationCompletedAt: &now,
 	}
@@ -302,7 +294,7 @@ func (r *DualSlotRotatingSigner) checkAndRotate(ctx context.Context) error {
 	// Filter slots to find slotA and slotB for this token type
 	var slotA, slotB *KeySlot
 	for _, slot := range slots {
-		if slot.TokenType != r.tokenType {
+		if slot.Namespace != r.namespace || slot.KeyProviderID != r.keyProviderID {
 			continue
 		}
 		switch slot.Position {
@@ -311,7 +303,7 @@ func (r *DualSlotRotatingSigner) checkAndRotate(ctx context.Context) error {
 		case SlotPositionB:
 			slotB = slot
 		default:
-			return fmt.Errorf("unexpected slot position for token type %s: %s", r.tokenType, slot.Position)
+			return fmt.Errorf("unexpected slot position for namespace %s: %s", r.namespace, slot.Position)
 		}
 	}
 
@@ -344,13 +336,13 @@ func (r *DualSlotRotatingSigner) checkAndRotate(ctx context.Context) error {
 	}
 
 	// 4. Generate key and complete rotation using current KeyProvider
-	km, ok := r.keyProviderRegistry[r.keyProviderID]
+	provider, ok := r.keyProviderRegistry[r.keyProviderID]
 	if !ok {
 		return fmt.Errorf("key provider not found: %s", r.keyProviderID)
 	}
 
 	keyName := r.keyName(targetSlot.Position)
-	handle, err := km.GetKeyHandle(ctx, r.namespace(), keyName)
+	handle, err := provider.GetKeyHandle(ctx, r.trustDomain, r.namespace, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to get key handle: %w", err)
 	}
@@ -425,7 +417,7 @@ func (r *DualSlotRotatingSigner) selectSlotsForRotation(slotA, slotB *KeySlot) (
 		if slotB == nil {
 			slotB = &KeySlot{
 				Position:      SlotPositionB,
-				TokenType:     r.tokenType,
+				Namespace:     r.namespace,
 				KeyProviderID: r.keyProviderID,
 			}
 		}
@@ -446,7 +438,7 @@ func (r *DualSlotRotatingSigner) selectSlotsForRotation(slotA, slotB *KeySlot) (
 		if slotA == nil {
 			slotA = &KeySlot{
 				Position:      SlotPositionA,
-				TokenType:     r.tokenType,
+				Namespace:     r.namespace,
 				KeyProviderID: r.keyProviderID,
 			}
 		}
@@ -475,7 +467,7 @@ func (r *DualSlotRotatingSigner) updateActiveKeyCache(ctx context.Context) error
 	// TODO: maybe push token type filtering to the store rather than do it in memory after retrieving everything
 	var mySlots []*KeySlot
 	for _, slot := range slots {
-		if slot.TokenType == r.tokenType {
+		if slot.Namespace == r.namespace && slot.KeyProviderID == r.keyProviderID {
 			mySlots = append(mySlots, slot)
 		}
 	}
@@ -508,14 +500,14 @@ func (r *DualSlotRotatingSigner) updateActiveKeyCache(ctx context.Context) error
 		}
 
 		// Get the KeyProvider that created this key
-		km, ok := r.keyProviderRegistry[slot.KeyProviderID]
+		provider, ok := r.keyProviderRegistry[slot.KeyProviderID]
 		if !ok {
 			log.Printf("Warning: key provider %s not found for slot %s, skipping", slot.KeyProviderID, slot.Position)
 			continue
 		}
 
 		keyName := r.keyName(slot.Position)
-		handle, err := km.GetKeyHandle(ctx, r.namespace(), keyName)
+		handle, err := provider.GetKeyHandle(ctx, r.trustDomain, r.namespace, keyName)
 		if err != nil {
 			log.Printf("Warning: failed to get handle %s from key provider: %v", slot.Position, err)
 			continue
@@ -581,13 +573,13 @@ func (r *DualSlotRotatingSigner) updateActiveKeyCache(ctx context.Context) error
 	}
 
 	// Get the KeyProvider that created the active key
-	km, ok := r.keyProviderRegistry[activeSlot.KeyProviderID]
+	provider, ok := r.keyProviderRegistry[activeSlot.KeyProviderID]
 	if !ok {
 		return fmt.Errorf("key provider %s not found for active slot", activeSlot.KeyProviderID)
 	}
 
 	keyName := r.keyName(activeSlot.Position)
-	activeHandle, err := km.GetKeyHandle(ctx, r.namespace(), keyName)
+	activeHandle, err := provider.GetKeyHandle(ctx, r.trustDomain, r.namespace, keyName)
 	if err != nil {
 		return fmt.Errorf("failed to get active handle %s: %w", activeSlot.Position, err)
 	}

@@ -55,8 +55,10 @@ type RotatingSigner interface {
 
 // KeyProvider manages creating/retrieving KeyHandles.
 type KeyProvider interface {
-	// GetKeyHandle returns a handle for a specific namespace and key name.
-	GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error)
+	// GetKeyHandle returns a handle for a specific trust domain, namespace, and key name.
+	// trustDomain provides global isolation (e.g., "example.com").
+	// namespace provides logical grouping within the trust domain (e.g., "access-tokens").
+	GetKeyHandle(ctx context.Context, trustDomain, namespace, keyName string) (KeyHandle, error)
 }
 
 // KeyType represents the cryptographic key type
@@ -68,4 +70,3 @@ const (
 	KeyTypeRSA2048 KeyType = "RSA-2048"
 	KeyTypeRSA4096 KeyType = "RSA-4096"
 )
-

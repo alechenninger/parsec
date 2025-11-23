@@ -15,15 +15,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
-// AWSKMSKeyManager is a KeyProvider backed by AWS KMS.
-type AWSKMSKeyManager struct {
+// AWSKMSKeyProvider is a KeyProvider backed by AWS KMS.
+type AWSKMSKeyProvider struct {
 	client      *kms.Client
 	keyType     KeyType
 	algorithm   string
 	aliasPrefix string
 }
 
-// AWSKMSConfig configures the AWS KMS key manager
+// AWSKMSConfig configures the AWS KMS key provider
 type AWSKMSConfig struct {
 	KeyType     KeyType
 	Algorithm   string
@@ -32,8 +32,8 @@ type AWSKMSConfig struct {
 	Client      *kms.Client
 }
 
-// NewAWSKMSKeyManager creates a new AWS KMS key manager
-func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManager, error) {
+// NewAWSKMSKeyProvider creates a new AWS KMS key provider
+func NewAWSKMSKeyProvider(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyProvider, error) {
 	if cfg.KeyType == "" {
 		return nil, fmt.Errorf("key_type is required")
 	}
@@ -69,7 +69,7 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 		return nil, fmt.Errorf("alias prefix must start with 'alias/', got: %s", cfg.AliasPrefix)
 	}
 
-	return &AWSKMSKeyManager{
+	return &AWSKMSKeyProvider{
 		client:      client,
 		keyType:     cfg.KeyType,
 		algorithm:   algorithm,
@@ -77,15 +77,16 @@ func NewAWSKMSKeyManager(ctx context.Context, cfg AWSKMSConfig) (*AWSKMSKeyManag
 	}, nil
 }
 
-func (m *AWSKMSKeyManager) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+func (m *AWSKMSKeyProvider) GetKeyHandle(ctx context.Context, trustDomain, namespace, keyName string) (KeyHandle, error) {
 	return &awsKeyHandle{
-		manager:   m,
-		namespace: namespace,
-		keyName:   keyName,
+		manager:     m,
+		trustDomain: trustDomain,
+		namespace:   namespace,
+		keyName:     keyName,
 	}, nil
 }
 
-func (m *AWSKMSKeyManager) rotateKey(ctx context.Context, namespace string, keyName string) error {
+func (m *AWSKMSKeyProvider) rotateKey(ctx context.Context, trustDomain, namespace, keyName string) error {
 	// 1. Create new KMS key (CMK) using configured keyType
 	keySpec, err := keySpecFromKeyType(m.keyType)
 	if err != nil {
@@ -101,7 +102,7 @@ func (m *AWSKMSKeyManager) rotateKey(ctx context.Context, namespace string, keyN
 	}
 
 	newKeyID := aws.ToString(createResp.KeyMetadata.KeyId)
-	aliasName := m.aliasName(namespace, keyName)
+	aliasName := m.aliasName(trustDomain, namespace, keyName)
 
 	// 2. Get current alias to find old key (if exists)
 	oldKeyID, err := m.getKeyIDFromAlias(ctx, aliasName)
@@ -144,7 +145,7 @@ func (m *AWSKMSKeyManager) rotateKey(ctx context.Context, namespace string, keyN
 	return nil
 }
 
-func (m *AWSKMSKeyManager) getKeyIDFromAlias(ctx context.Context, aliasName string) (string, error) {
+func (m *AWSKMSKeyProvider) getKeyIDFromAlias(ctx context.Context, aliasName string) (string, error) {
 	resp, err := m.client.DescribeKey(ctx, &kms.DescribeKeyInput{
 		KeyId: aws.String(aliasName),
 	})
@@ -154,20 +155,31 @@ func (m *AWSKMSKeyManager) getKeyIDFromAlias(ctx context.Context, aliasName stri
 	return aws.ToString(resp.KeyMetadata.KeyId), nil
 }
 
-func (m *AWSKMSKeyManager) aliasName(namespace, keyName string) string {
-	sanitizedNS := strings.ReplaceAll(namespace, ":", "_")
-	return fmt.Sprintf("%s%s/%s", m.aliasPrefix, sanitizedNS, keyName)
+func (m *AWSKMSKeyProvider) aliasName(trustDomain, namespace, keyName string) string {
+	// Build alias path with separate trust domain and namespace components
+	var parts []string
+	if trustDomain != "" {
+		parts = append(parts, strings.ReplaceAll(trustDomain, ":", "_"))
+	}
+	if namespace != "" {
+		parts = append(parts, strings.ReplaceAll(namespace, ":", "_"))
+	}
+	parts = append(parts, keyName)
+
+	// Join all parts with "/" separator
+	return fmt.Sprintf("%s%s", m.aliasPrefix, strings.Join(parts, "/"))
 }
 
 // awsKeyHandle implements KeyHandle
 type awsKeyHandle struct {
-	manager   *AWSKMSKeyManager
-	namespace string
-	keyName   string
+	manager     *AWSKMSKeyProvider
+	trustDomain string
+	namespace   string
+	keyName     string
 }
 
 func (h *awsKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
-	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+	aliasName := h.manager.aliasName(h.trustDomain, h.namespace, h.keyName)
 
 	// Determine signing algorithm
 	var signingAlg types.SigningAlgorithmSpec
@@ -210,7 +222,7 @@ func (h *awsKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.Sign
 }
 
 func (h *awsKeyHandle) Metadata(ctx context.Context) (string, string, error) {
-	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+	aliasName := h.manager.aliasName(h.trustDomain, h.namespace, h.keyName)
 	keyID, err := h.manager.getKeyIDFromAlias(ctx, aliasName)
 	if err != nil {
 		return "", "", err
@@ -222,7 +234,7 @@ func (h *awsKeyHandle) Metadata(ctx context.Context) (string, string, error) {
 }
 
 func (h *awsKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
-	aliasName := h.manager.aliasName(h.namespace, h.keyName)
+	aliasName := h.manager.aliasName(h.trustDomain, h.namespace, h.keyName)
 	resp, err := h.manager.client.GetPublicKey(ctx, &kms.GetPublicKeyInput{
 		KeyId: aws.String(aliasName),
 	})
@@ -238,7 +250,7 @@ func (h *awsKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
 }
 
 func (h *awsKeyHandle) Rotate(ctx context.Context) error {
-	return h.manager.rotateKey(ctx, h.namespace, h.keyName)
+	return h.manager.rotateKey(ctx, h.trustDomain, h.namespace, h.keyName)
 }
 
 // Helper functions
@@ -296,4 +308,3 @@ func convertDERToRawECDSA(derSig []byte) ([]byte, error) {
 
 	return rawSig, nil
 }
-

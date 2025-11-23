@@ -74,13 +74,22 @@ data_sources:
       group_name: "org-cache"
       cache_size: 104857600  # 100 MB
 
-# Key managers - production uses AWS KMS
-key_managers:
+# Key providers - production uses AWS KMS
+key_providers:
   - id: "prod-kms"
     type: "aws_kms"
     key_type: "EC-P256"
     region: "us-east-1"
-    alias_prefix: "alias/parsec/prod-"
+    alias_prefix: "alias/parsec/"
+
+# Signers - configure key rotation
+signers:
+  - id: "prod-signer"
+    type: "dual_slot"
+    key_provider_id: "prod-kms"
+    key_ttl: "168h"           # 7 days
+    rotation_threshold: "48h"  # 2 days
+    grace_period: "24h"        # 1 day
 
 # Token issuers
 issuers:
@@ -88,7 +97,7 @@ issuers:
     type: transaction_token
     issuer_url: "https://parsec.prod.example.com"
     ttl: 5m
-    key_manager: "prod-kms"
+    signer_id: "prod-signer"
     transaction_context:
       - type: "cel"
         expression: |

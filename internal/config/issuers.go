@@ -18,14 +18,26 @@ import (
 func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 	registry := service.NewSimpleRegistry()
 
-	// Build key manager registry from global config
-	providerRegistry, err := buildKeyProviderRegistry(cfg.KeyManagers)
+	// Build key provider registry from global config
+	providerRegistry, err := buildKeyProviderRegistry(cfg.KeyProviders)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build key manager registry: %w", err)
+		return nil, fmt.Errorf("failed to build key provider registry: %w", err)
 	}
 
 	// Create shared key slot store
 	slotStore := keys.NewInMemoryKeySlotStore()
+
+	// Build signer registry from global config
+	signerRegistry, err := buildSignerRegistry(cfg.Signers, cfg.TrustDomain, providerRegistry, slotStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signer registry: %w", err)
+	}
+
+	// Start all signers
+	ctx := context.Background()
+	if err := signerRegistry.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start signers: %w", err)
+	}
 
 	for _, issuerCfg := range cfg.Issuers {
 		if issuerCfg.TokenType == "" {
@@ -35,8 +47,8 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 		// Use token type directly as service.TokenType (it's already a URN string)
 		tokenType := service.TokenType(issuerCfg.TokenType)
 
-		// Create issuer
-		iss, err := newIssuer(issuerCfg, cfg.TrustDomain, providerRegistry, slotStore)
+		// Create issuer (now using signer registry instead of building signers inline)
+		iss, err := newIssuer(issuerCfg, signerRegistry)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create issuer for token type %s: %w", issuerCfg.TokenType, err)
 		}
@@ -49,80 +61,178 @@ func NewIssuerRegistry(cfg Config) (service.Registry, error) {
 }
 
 // buildKeyProviderRegistry creates a map of KeyProvider instances from configuration
-func buildKeyProviderRegistry(configs []KeyManagerConfig) (map[string]keys.KeyProvider, error) {
+func buildKeyProviderRegistry(configs []KeyProviderConfig) (map[string]keys.KeyProvider, error) {
 	registry := make(map[string]keys.KeyProvider)
 
 	for _, cfg := range configs {
 		if cfg.ID == "" {
-			return nil, fmt.Errorf("key manager id is required")
+			return nil, fmt.Errorf("key provider id is required")
 		}
 
 		if _, exists := registry[cfg.ID]; exists {
-			return nil, fmt.Errorf("duplicate key manager id: %s", cfg.ID)
+			return nil, fmt.Errorf("duplicate key provider id: %s", cfg.ID)
 		}
 
 		// Parse key type
 		if cfg.KeyType == "" {
-			return nil, fmt.Errorf("key manager %s requires key_type", cfg.ID)
+			return nil, fmt.Errorf("key provider %s requires key_type", cfg.ID)
 		}
 		keyType := keys.KeyType(cfg.KeyType)
 
-		var km keys.KeyProvider
+		var provider keys.KeyProvider
 		var err error
 
 		switch cfg.Type {
 		case "", "memory":
-			km = keys.NewInMemoryKeyManager(keyType, cfg.Algorithm)
+			provider = keys.NewInMemoryKeyProvider(keyType, cfg.Algorithm)
 
 		case "disk":
 			if cfg.KeysPath == "" {
-				return nil, fmt.Errorf("disk key manager %s requires keys_path", cfg.ID)
+				return nil, fmt.Errorf("disk key provider %s requires keys_path", cfg.ID)
 			}
-			km, err = keys.NewDiskKeyManager(keys.DiskKeyManagerConfig{
+			provider, err = keys.NewDiskKeyProvider(keys.DiskKeyProviderConfig{
 				KeyType:   keyType,
 				Algorithm: cfg.Algorithm,
 				KeysPath:  cfg.KeysPath,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("failed to create disk key manager %s: %w", cfg.ID, err)
+				return nil, fmt.Errorf("failed to create disk key provider %s: %w", cfg.ID, err)
 			}
 
 		case "aws_kms":
 			if cfg.Region == "" {
-				return nil, fmt.Errorf("aws_kms key manager %s requires region", cfg.ID)
+				return nil, fmt.Errorf("aws_kms key provider %s requires region", cfg.ID)
 			}
 			if cfg.AliasPrefix == "" {
-				return nil, fmt.Errorf("aws_kms key manager %s requires alias_prefix", cfg.ID)
+				return nil, fmt.Errorf("aws_kms key provider %s requires alias_prefix", cfg.ID)
 			}
-			km, err = keys.NewAWSKMSKeyManager(context.Background(), keys.AWSKMSConfig{
+			provider, err = keys.NewAWSKMSKeyProvider(context.Background(), keys.AWSKMSConfig{
 				KeyType:     keyType,
 				Algorithm:   cfg.Algorithm,
 				Region:      cfg.Region,
 				AliasPrefix: cfg.AliasPrefix,
 			})
 			if err != nil {
-				return nil, fmt.Errorf("failed to create aws_kms key manager %s: %w", cfg.ID, err)
+				return nil, fmt.Errorf("failed to create aws_kms key provider %s: %w", cfg.ID, err)
 			}
 
 		default:
-			return nil, fmt.Errorf("unknown key manager type for %s: %s (supported: memory, disk, aws_kms)", cfg.ID, cfg.Type)
+			return nil, fmt.Errorf("unknown key provider type for %s: %s (supported: memory, disk, aws_kms)", cfg.ID, cfg.Type)
 		}
 
-		registry[cfg.ID] = km
+		registry[cfg.ID] = provider
+	}
+
+	return registry, nil
+}
+
+// buildSignerRegistry creates a SignerRegistry from configuration
+func buildSignerRegistry(configs []SignerConfig, trustDomain string, providerRegistry map[string]keys.KeyProvider, slotStore keys.KeySlotStore) (*keys.SignerRegistry, error) {
+	registry := keys.NewSignerRegistry()
+
+	for _, cfg := range configs {
+		if cfg.ID == "" {
+			return nil, fmt.Errorf("signer id is required")
+		}
+
+		if cfg.KeyProviderID == "" {
+			return nil, fmt.Errorf("signer %s requires key_provider_id", cfg.ID)
+		}
+
+		// Validate key provider exists
+		if _, ok := providerRegistry[cfg.KeyProviderID]; !ok {
+			return nil, fmt.Errorf("key provider not found for signer %s: %s", cfg.ID, cfg.KeyProviderID)
+		}
+
+		// Determine namespace (defaults to ID)
+		namespace := cfg.Namespace
+		if namespace == "" {
+			namespace = cfg.ID
+		}
+
+		// Parse timing parameters
+		keyTTL := 24 * time.Hour
+		if cfg.KeyTTL != "" {
+			duration, err := time.ParseDuration(cfg.KeyTTL)
+			if err != nil {
+				return nil, fmt.Errorf("invalid key_ttl for signer %s: %w", cfg.ID, err)
+			}
+			keyTTL = duration
+		}
+
+		rotationThreshold := 6 * time.Hour
+		if cfg.RotationThreshold != "" {
+			duration, err := time.ParseDuration(cfg.RotationThreshold)
+			if err != nil {
+				return nil, fmt.Errorf("invalid rotation_threshold for signer %s: %w", cfg.ID, err)
+			}
+			rotationThreshold = duration
+		}
+
+		gracePeriod := 2 * time.Hour
+		if cfg.GracePeriod != "" {
+			duration, err := time.ParseDuration(cfg.GracePeriod)
+			if err != nil {
+				return nil, fmt.Errorf("invalid grace_period for signer %s: %w", cfg.ID, err)
+			}
+			gracePeriod = duration
+		}
+
+		checkInterval := 1 * time.Minute
+		if cfg.CheckInterval != "" {
+			duration, err := time.ParseDuration(cfg.CheckInterval)
+			if err != nil {
+				return nil, fmt.Errorf("invalid check_interval for signer %s: %w", cfg.ID, err)
+			}
+			checkInterval = duration
+		}
+
+		prepareTimeout := 1 * time.Minute
+		if cfg.PrepareTimeout != "" {
+			duration, err := time.ParseDuration(cfg.PrepareTimeout)
+			if err != nil {
+				return nil, fmt.Errorf("invalid prepare_timeout for signer %s: %w", cfg.ID, err)
+			}
+			prepareTimeout = duration
+		}
+
+		// Create signer based on type
+		var signer keys.RotatingSigner
+		switch cfg.Type {
+		case "", "dual_slot":
+			signer = keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
+				Namespace:           namespace,
+				TrustDomain:         trustDomain,
+				KeyProviderID:       cfg.KeyProviderID,
+				KeyProviderRegistry: providerRegistry,
+				SlotStore:           slotStore,
+				KeyTTL:              keyTTL,
+				RotationThreshold:   rotationThreshold,
+				GracePeriod:         gracePeriod,
+				CheckInterval:       checkInterval,
+				PrepareTimeout:      prepareTimeout,
+			})
+		default:
+			return nil, fmt.Errorf("unknown signer type for %s: %s (supported: dual_slot)", cfg.ID, cfg.Type)
+		}
+
+		if err := registry.Register(cfg.ID, signer); err != nil {
+			return nil, fmt.Errorf("failed to register signer %s: %w", cfg.ID, err)
+		}
 	}
 
 	return registry, nil
 }
 
 // newIssuer creates an issuer from configuration
-func newIssuer(cfg IssuerConfig, trustDomain string, providerRegistry map[string]keys.KeyProvider, slotStore keys.KeySlotStore) (service.Issuer, error) {
+func newIssuer(cfg IssuerConfig, signerRegistry *keys.SignerRegistry) (service.Issuer, error) {
 	switch cfg.Type {
 	case "stub":
 		return newStubIssuer(cfg)
 	case "unsigned":
 		return newUnsignedIssuer(cfg)
 	case "transaction_token":
-		return newSigningTransactionTokenIssuer(cfg, trustDomain, providerRegistry, slotStore)
+		return newTransactionTokenIssuer(cfg, signerRegistry)
 	case "rh_identity":
 		return newRHIdentityIssuer(cfg)
 	default:
@@ -174,21 +284,22 @@ func newStubIssuer(cfg IssuerConfig) (service.Issuer, error) {
 	}), nil
 }
 
-// newSigningTransactionTokenIssuer creates a signing transaction token issuer.
-// This issuer signs transaction tokens itself using a key manager (as opposed to delegating to an external service).
-func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, providerRegistry map[string]keys.KeyProvider, slotStore keys.KeySlotStore) (service.Issuer, error) {
+// newTransactionTokenIssuer creates a transaction token issuer.
+// This issuer signs transaction tokens using a signer from the global signer registry.
+func newTransactionTokenIssuer(cfg IssuerConfig, signerRegistry *keys.SignerRegistry) (service.Issuer, error) {
 	if cfg.IssuerURL == "" {
 		return nil, fmt.Errorf("transaction_token issuer requires issuer_url")
 	}
 
-	// Validate key_manager is specified
-	if cfg.KeyManager == "" {
-		return nil, fmt.Errorf("transaction_token issuer requires key_manager")
+	// Validate signer_id is specified
+	if cfg.SignerID == "" {
+		return nil, fmt.Errorf("transaction_token issuer requires signer_id")
 	}
 
-	// Validate key manager exists in registry
-	if _, ok := providerRegistry[cfg.KeyManager]; !ok {
-		return nil, fmt.Errorf("key manager not found: %s", cfg.KeyManager)
+	// Get signer from registry
+	signer, err := signerRegistry.Get(cfg.SignerID)
+	if err != nil {
+		return nil, fmt.Errorf("signer not found: %s", cfg.SignerID)
 	}
 
 	// Parse TTL
@@ -221,26 +332,10 @@ func newSigningTransactionTokenIssuer(cfg IssuerConfig, trustDomain string, prov
 		reqMappers = append(reqMappers, m)
 	}
 
-	// Initialize rotating key manager with registry and token type
-	rotatingKM := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:          cfg.TokenType,
-		TrustDomain:        trustDomain,
-		KeyProviderID:       cfg.KeyManager,
-		KeyProviderRegistry: providerRegistry,
-		SlotStore:          slotStore,
-		PrepareTimeout:     1 * time.Minute,
-	})
-
-	// Start the rotating key manager
-	ctx := context.Background()
-	if err := rotatingKM.Start(ctx); err != nil {
-		return nil, fmt.Errorf("failed to start rotating key manager: %w", err)
-	}
-
-	return issuer.NewSigningTransactionTokenIssuer(issuer.SigningTransactionTokenIssuerConfig{
+	return issuer.NewTransactionTokenIssuer(issuer.TransactionTokenIssuerConfig{
 		IssuerURL:                 cfg.IssuerURL,
 		TTL:                       ttl,
-		KeyManager:                rotatingKM,
+		Signer:                    signer,
 		TransactionContextMappers: txnMappers,
 		RequestContextMappers:     reqMappers,
 	}), nil

@@ -20,19 +20,19 @@ import (
 	"github.com/google/uuid"
 )
 
-// DiskKeyManager is a KeyProvider that stores keys on disk as JSON files.
+// DiskKeyProvider is a KeyProvider that stores keys on disk as JSON files.
 // It's suitable for single-pod Kubernetes deployments with ReadWriteOnce persistent volumes.
-type DiskKeyManager struct {
+type DiskKeyProvider struct {
 	mu        sync.RWMutex
-	keyType   KeyType       // The key type this manager creates
+	keyType   KeyType       // The key type this provider creates
 	algorithm string        // The signing algorithm to use
 	keysPath  string        // Directory path for storing key files
 	fs        fs.FileSystem // Filesystem abstraction for operations
 }
 
-// DiskKeyManagerConfig configures the disk key manager
-type DiskKeyManagerConfig struct {
-	// KeyType is the type of keys this manager creates
+// DiskKeyProviderConfig configures the disk key provider
+type DiskKeyProviderConfig struct {
+	// KeyType is the type of keys this provider creates
 	KeyType KeyType
 
 	// Algorithm is the signing algorithm to use
@@ -54,8 +54,8 @@ type keyFileData struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// NewDiskKeyManager creates a new disk-based key manager
-func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
+// NewDiskKeyProvider creates a new disk-based key provider
+func NewDiskKeyProvider(cfg DiskKeyProviderConfig) (*DiskKeyProvider, error) {
 	if cfg.KeysPath == "" {
 		return nil, fmt.Errorf("keys_path is required")
 	}
@@ -96,7 +96,7 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 		return nil, fmt.Errorf("failed to create keys directory: %w", err)
 	}
 
-	return &DiskKeyManager{
+	return &DiskKeyProvider{
 		keyType:   cfg.KeyType,
 		algorithm: algorithm,
 		keysPath:  cfg.KeysPath,
@@ -104,15 +104,16 @@ func NewDiskKeyManager(cfg DiskKeyManagerConfig) (*DiskKeyManager, error) {
 	}, nil
 }
 
-func (m *DiskKeyManager) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+func (m *DiskKeyProvider) GetKeyHandle(ctx context.Context, trustDomain, namespace, keyName string) (KeyHandle, error) {
 	return &diskKeyHandle{
-		manager:   m,
-		namespace: namespace,
-		keyName:   keyName,
+		manager:     m,
+		trustDomain: trustDomain,
+		namespace:   namespace,
+		keyName:     keyName,
 	}, nil
 }
 
-func (m *DiskKeyManager) rotateKey(namespace, keyName string) error {
+func (m *DiskKeyProvider) rotateKey(trustDomain, namespace, keyName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -158,19 +159,19 @@ func (m *DiskKeyManager) rotateKey(namespace, keyName string) error {
 	}
 
 	// Write to disk atomically
-	if err := m.writeKeyFile(namespace, keyName, &data); err != nil {
+	if err := m.writeKeyFile(trustDomain, namespace, keyName, &data); err != nil {
 		return fmt.Errorf("failed to write key file: %w", err)
 	}
 
 	return nil
 }
 
-func (m *DiskKeyManager) loadKey(namespace, keyName string) (crypto.Signer, string, string, error) {
+func (m *DiskKeyProvider) loadKey(trustDomain, namespace, keyName string) (crypto.Signer, string, string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Read key file
-	data, err := m.readKeyFile(namespace, keyName)
+	data, err := m.readKeyFile(trustDomain, namespace, keyName)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -205,8 +206,8 @@ func (m *DiskKeyManager) loadKey(namespace, keyName string) (crypto.Signer, stri
 }
 
 // writeKeyFile atomically writes a key file to disk
-func (m *DiskKeyManager) writeKeyFile(namespace, keyName string, data *keyFileData) error {
-	keyFilePath := m.keyFilePath(namespace, keyName)
+func (m *DiskKeyProvider) writeKeyFile(trustDomain, namespace, keyName string, data *keyFileData) error {
+	keyFilePath := m.keyFilePath(trustDomain, namespace, keyName)
 
 	// Ensure directory exists
 	dir := filepath.Dir(keyFilePath)
@@ -229,8 +230,8 @@ func (m *DiskKeyManager) writeKeyFile(namespace, keyName string, data *keyFileDa
 }
 
 // readKeyFile reads a key file from disk
-func (m *DiskKeyManager) readKeyFile(namespace, keyName string) (*keyFileData, error) {
-	keyFilePath := m.keyFilePath(namespace, keyName)
+func (m *DiskKeyProvider) readKeyFile(trustDomain, namespace, keyName string) (*keyFileData, error) {
+	keyFilePath := m.keyFilePath(trustDomain, namespace, keyName)
 
 	// Read file
 	jsonData, err := m.fs.ReadFile(keyFilePath)
@@ -250,27 +251,44 @@ func (m *DiskKeyManager) readKeyFile(namespace, keyName string) (*keyFileData, e
 	return &data, nil
 }
 
-// keyFilePath returns the full path to a key file for a given namespace and keyName
-func (m *DiskKeyManager) keyFilePath(namespace, keyName string) string {
-	sanitizedNS := m.sanitize(namespace)
-	return filepath.Join(m.keysPath, sanitizedNS, fmt.Sprintf("%s.json", keyName))
+// keyFilePath returns the full path to a key file for a given trust domain, namespace, and keyName
+func (m *DiskKeyProvider) keyFilePath(trustDomain, namespace, keyName string) string {
+	// Build path components separately and sanitize each
+	var parts []string
+	if trustDomain != "" {
+		parts = append(parts, m.sanitize(trustDomain))
+	}
+	if namespace != "" {
+		parts = append(parts, m.sanitize(namespace))
+	}
+
+	// Join parts to create the directory path
+	var dirPath string
+	if len(parts) > 0 {
+		dirPath = filepath.Join(append([]string{m.keysPath}, parts...)...)
+	} else {
+		dirPath = m.keysPath
+	}
+
+	return filepath.Join(dirPath, fmt.Sprintf("%s.json", keyName))
 }
 
 // sanitize replaces invalid path characters with underscores
-func (m *DiskKeyManager) sanitize(s string) string {
+func (m *DiskKeyProvider) sanitize(s string) string {
 	s = strings.ReplaceAll(s, ":", "_")
 	s = strings.ReplaceAll(s, "/", "_")
 	return s
 }
 
 type diskKeyHandle struct {
-	manager   *DiskKeyManager
-	namespace string
-	keyName   string
+	manager     *DiskKeyProvider
+	trustDomain string
+	namespace   string
+	keyName     string
 }
 
 func (h *diskKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
-	signer, id, _, err := h.manager.loadKey(h.namespace, h.keyName)
+	signer, id, _, err := h.manager.loadKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return nil, "", err
 	}
@@ -284,7 +302,7 @@ func (h *diskKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.Sig
 }
 
 func (h *diskKeyHandle) Metadata(ctx context.Context) (string, string, error) {
-	_, id, alg, err := h.manager.loadKey(h.namespace, h.keyName)
+	_, id, alg, err := h.manager.loadKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return "", "", err
 	}
@@ -292,7 +310,7 @@ func (h *diskKeyHandle) Metadata(ctx context.Context) (string, string, error) {
 }
 
 func (h *diskKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
-	signer, _, _, err := h.manager.loadKey(h.namespace, h.keyName)
+	signer, _, _, err := h.manager.loadKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +318,5 @@ func (h *diskKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
 }
 
 func (h *diskKeyHandle) Rotate(ctx context.Context) error {
-	return h.manager.rotateKey(h.namespace, h.keyName)
+	return h.manager.rotateKey(h.trustDomain, h.namespace, h.keyName)
 }
-

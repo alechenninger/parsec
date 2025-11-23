@@ -18,18 +18,18 @@ type memoryKey struct {
 	Signer    crypto.Signer
 }
 
-// InMemoryKeyManager is an in-memory implementation of KeyProvider for testing and development.
-type InMemoryKeyManager struct {
+// InMemoryKeyProvider is an in-memory implementation of KeyProvider for testing and development.
+type InMemoryKeyProvider struct {
 	mu         sync.RWMutex
-	keyType    KeyType               // The key type this manager creates
+	keyType    KeyType               // The key type this provider creates
 	algorithm  string                // The signing algorithm to use
 	keys       map[string]*memoryKey // Current keys by namespace:keyName
 	oldKeys    []*memoryKey          // Keys scheduled for deletion
 	keyCounter int                   // Counter for generating unique key IDs
 }
 
-// NewInMemoryKeyManager creates a new in-memory key manager
-func NewInMemoryKeyManager(keyType KeyType, algorithm string) *InMemoryKeyManager {
+// NewInMemoryKeyProvider creates a new in-memory key provider
+func NewInMemoryKeyProvider(keyType KeyType, algorithm string) *InMemoryKeyProvider {
 	if algorithm == "" {
 		// Determine default algorithm
 		switch keyType {
@@ -42,7 +42,7 @@ func NewInMemoryKeyManager(keyType KeyType, algorithm string) *InMemoryKeyManage
 		}
 	}
 
-	return &InMemoryKeyManager{
+	return &InMemoryKeyProvider{
 		keyType:    keyType,
 		algorithm:  algorithm,
 		keys:       make(map[string]*memoryKey),
@@ -51,20 +51,21 @@ func NewInMemoryKeyManager(keyType KeyType, algorithm string) *InMemoryKeyManage
 	}
 }
 
-// GetKeyHandle returns a handle for a specific namespace and key name.
-func (m *InMemoryKeyManager) GetKeyHandle(ctx context.Context, namespace string, keyName string) (KeyHandle, error) {
+// GetKeyHandle returns a handle for a specific trust domain, namespace, and key name.
+func (m *InMemoryKeyProvider) GetKeyHandle(ctx context.Context, trustDomain, namespace, keyName string) (KeyHandle, error) {
 	return &memoryKeyHandle{
-		manager:   m,
-		namespace: namespace,
-		keyName:   keyName,
+		manager:     m,
+		trustDomain: trustDomain,
+		namespace:   namespace,
+		keyName:     keyName,
 	}, nil
 }
 
-func (m *InMemoryKeyManager) rotateKey(namespace, keyName string) error {
+func (m *InMemoryKeyProvider) rotateKey(trustDomain, namespace, keyName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	storageKey := m.storageKey(namespace, keyName)
+	storageKey := m.storageKey(trustDomain, namespace, keyName)
 
 	// If key exists with this identifier, move to oldKeys (simulate deletion scheduling)
 	if existing, ok := m.keys[storageKey]; ok {
@@ -92,7 +93,17 @@ func (m *InMemoryKeyManager) rotateKey(namespace, keyName string) error {
 	}
 
 	m.keyCounter++
-	kid := fmt.Sprintf("%s-%s-%d", namespace, keyName, m.keyCounter)
+	// Build key ID from trust domain, namespace, and key name for clarity
+	var kid string
+	if trustDomain != "" && namespace != "" {
+		kid = fmt.Sprintf("%s/%s-%s-%d", trustDomain, namespace, keyName, m.keyCounter)
+	} else if trustDomain != "" {
+		kid = fmt.Sprintf("%s-%s-%d", trustDomain, keyName, m.keyCounter)
+	} else if namespace != "" {
+		kid = fmt.Sprintf("%s-%s-%d", namespace, keyName, m.keyCounter)
+	} else {
+		kid = fmt.Sprintf("%s-%d", keyName, m.keyCounter)
+	}
 
 	key := &memoryKey{
 		ID:        kid,
@@ -104,28 +115,47 @@ func (m *InMemoryKeyManager) rotateKey(namespace, keyName string) error {
 	return nil
 }
 
-func (m *InMemoryKeyManager) getKey(namespace, keyName string) (*memoryKey, error) {
+func (m *InMemoryKeyProvider) getKey(trustDomain, namespace, keyName string) (*memoryKey, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	key, ok := m.keys[m.storageKey(namespace, keyName)]
+	key, ok := m.keys[m.storageKey(trustDomain, namespace, keyName)]
 	if !ok {
-		return nil, fmt.Errorf("key not found: %s:%s", namespace, keyName)
+		return nil, fmt.Errorf("key not found: %s/%s:%s", trustDomain, namespace, keyName)
 	}
 	return key, nil
 }
 
-func (m *InMemoryKeyManager) storageKey(namespace, keyName string) string {
-	return namespace + ":" + keyName
+func (m *InMemoryKeyProvider) storageKey(trustDomain, namespace, keyName string) string {
+	// Build storage key with all components for unambiguous lookup
+	var parts []string
+	if trustDomain != "" {
+		parts = append(parts, trustDomain)
+	}
+	if namespace != "" {
+		parts = append(parts, namespace)
+	}
+	parts = append(parts, keyName)
+	
+	// Join with ":" to create storage key
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += ":"
+		}
+		result += part
+	}
+	return result
 }
 
 type memoryKeyHandle struct {
-	manager   *InMemoryKeyManager
-	namespace string
-	keyName   string
+	manager     *InMemoryKeyProvider
+	trustDomain string
+	namespace   string
+	keyName     string
 }
 
 func (h *memoryKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.SignerOpts) ([]byte, string, error) {
-	key, err := h.manager.getKey(h.namespace, h.keyName)
+	key, err := h.manager.getKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return nil, "", err
 	}
@@ -139,7 +169,7 @@ func (h *memoryKeyHandle) Sign(ctx context.Context, digest []byte, opts crypto.S
 }
 
 func (h *memoryKeyHandle) Metadata(ctx context.Context) (string, string, error) {
-	key, err := h.manager.getKey(h.namespace, h.keyName)
+	key, err := h.manager.getKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return "", "", err
 	}
@@ -147,7 +177,7 @@ func (h *memoryKeyHandle) Metadata(ctx context.Context) (string, string, error) 
 }
 
 func (h *memoryKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) {
-	key, err := h.manager.getKey(h.namespace, h.keyName)
+	key, err := h.manager.getKey(h.trustDomain, h.namespace, h.keyName)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +185,5 @@ func (h *memoryKeyHandle) Public(ctx context.Context) (crypto.PublicKey, error) 
 }
 
 func (h *memoryKeyHandle) Rotate(ctx context.Context) error {
-	return h.manager.rotateKey(h.namespace, h.keyName)
+	return h.manager.rotateKey(h.trustDomain, h.namespace, h.keyName)
 }
-

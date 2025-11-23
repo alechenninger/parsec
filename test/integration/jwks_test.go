@@ -29,26 +29,26 @@ func TestJWKSEndpoint(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create a signing transaction token issuer with an in-memory key manager
-	km := keys.NewInMemoryKeyManager(keys.KeyTypeECP256, "ES256")
+	kp := keys.NewInMemoryKeyProvider(keys.KeyTypeECP256, "ES256")
 	slotStore := keys.NewInMemoryKeySlotStore()
 	providerRegistry := map[string]keys.KeyProvider{
-		"test-km": km,
+		"test-provider": kp,
 	}
-	rotatingKM := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:           string(service.TokenTypeTransactionToken),
-		KeyProviderID:       "test-km",
+	signer := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
+		Namespace:           string(service.TokenTypeTransactionToken),
+		KeyProviderID:       "test-provider",
 		KeyProviderRegistry: providerRegistry,
 		SlotStore:           slotStore,
 	})
 
-	if err := rotatingKM.Start(ctx); err != nil {
-		t.Fatalf("Failed to start rotating key manager: %v", err)
+	if err := signer.Start(ctx); err != nil {
+		t.Fatalf("Failed to start signer: %v", err)
 	}
 
-	txnIssuer := issuer.NewSigningTransactionTokenIssuer(issuer.SigningTransactionTokenIssuerConfig{
+	txnIssuer := issuer.NewTransactionTokenIssuer(issuer.TransactionTokenIssuerConfig{
 		IssuerURL:                 "https://parsec.test",
 		TTL:                       5 * time.Minute,
-		KeyManager:                rotatingKM,
+		Signer:                    signer,
 		TransactionContextMappers: []service.ClaimMapper{service.NewPassthroughSubjectMapper()},
 		RequestContextMappers:     []service.ClaimMapper{service.NewRequestAttributesMapper()},
 	})
@@ -184,26 +184,26 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry := service.NewSimpleRegistry()
 
 	// Create first issuer (transaction token with ECP256)
-	km1 := keys.NewInMemoryKeyManager(keys.KeyTypeECP256, "ES256")
+	kp1 := keys.NewInMemoryKeyProvider(keys.KeyTypeECP256, "ES256")
 	slotStore1 := keys.NewInMemoryKeySlotStore()
 	providerRegistry1 := map[string]keys.KeyProvider{
-		"test-km-1": km1,
+		"test-provider-1": kp1,
 	}
-	rotatingKM1 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:           string(service.TokenTypeTransactionToken),
-		KeyProviderID:       "test-km-1",
+	rotatingSigner1 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
+		Namespace:           string(service.TokenTypeTransactionToken),
+		KeyProviderID:       "test-provider-1",
 		KeyProviderRegistry: providerRegistry1,
 		SlotStore:           slotStore1,
 	})
 
-	if err := rotatingKM1.Start(ctx); err != nil {
-		t.Fatalf("Failed to start rotating key manager 1: %v", err)
+	if err := rotatingSigner1.Start(ctx); err != nil {
+		t.Fatalf("Failed to start rotating signer 1: %v", err)
 	}
 
-	txnIssuer := issuer.NewSigningTransactionTokenIssuer(issuer.SigningTransactionTokenIssuerConfig{
+	txnIssuer := issuer.NewTransactionTokenIssuer(issuer.TransactionTokenIssuerConfig{
 		IssuerURL:                 "https://parsec.test",
 		TTL:                       5 * time.Minute,
-		KeyManager:                rotatingKM1,
+		Signer:                    rotatingSigner1,
 		TransactionContextMappers: []service.ClaimMapper{service.NewPassthroughSubjectMapper()},
 		RequestContextMappers:     []service.ClaimMapper{service.NewRequestAttributesMapper()},
 	})
@@ -211,26 +211,26 @@ func TestJWKSWithMultipleIssuers(t *testing.T) {
 	issuerRegistry.Register(service.TokenTypeTransactionToken, txnIssuer)
 
 	// Create second issuer (access token with ECP384)
-	km2 := keys.NewInMemoryKeyManager(keys.KeyTypeECP384, "ES384")
+	kp2 := keys.NewInMemoryKeyProvider(keys.KeyTypeECP384, "ES384")
 	slotStore2 := keys.NewInMemoryKeySlotStore()
 	providerRegistry2 := map[string]keys.KeyProvider{
-		"test-km-2": km2,
+		"test-provider-2": kp2,
 	}
-	rotatingKM2 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
-		TokenType:           string(service.TokenTypeAccessToken),
-		KeyProviderID:       "test-km-2",
+	rotatingSigner2 := keys.NewDualSlotRotatingSigner(keys.DualSlotRotatingSignerConfig{
+		Namespace:           string(service.TokenTypeAccessToken),
+		KeyProviderID:       "test-provider-2",
 		KeyProviderRegistry: providerRegistry2,
 		SlotStore:           slotStore2,
 	})
 
-	if err := rotatingKM2.Start(ctx); err != nil {
+	if err := rotatingSigner2.Start(ctx); err != nil {
 		t.Fatalf("Failed to start rotating key manager 2: %v", err)
 	}
 
-	accessIssuer := issuer.NewSigningTransactionTokenIssuer(issuer.SigningTransactionTokenIssuerConfig{
+	accessIssuer := issuer.NewTransactionTokenIssuer(issuer.TransactionTokenIssuerConfig{
 		IssuerURL:                 "https://parsec.test",
 		TTL:                       15 * time.Minute,
-		KeyManager:                rotatingKM2,
+		Signer:                    rotatingSigner2,
 		TransactionContextMappers: []service.ClaimMapper{service.NewPassthroughSubjectMapper()},
 		RequestContextMappers:     []service.ClaimMapper{},
 	})

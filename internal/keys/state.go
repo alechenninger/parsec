@@ -27,8 +27,8 @@ const (
 // KeySlot represents a key slot with its current key
 type KeySlot struct {
 	Position            SlotPosition // A or B
-	TokenType           string       // Which token type (issuer) owns this slot
-	KeyProviderID        string       // Which KeyProvider created this key
+	Namespace           string       // Logical namespace for this slot (issuer-specific)
+	KeyProviderID       string       // Which KeyProvider created this key
 	PreparingAt         *time.Time   // When "preparing" state started (nil = not preparing)
 	RotationCompletedAt *time.Time   // When rotation completed (for grace period)
 }
@@ -94,15 +94,16 @@ func (s *InMemoryKeySlotStore) ListSlots(ctx context.Context) ([]*KeySlot, Store
 }
 
 // storageKey generates the internal map key for a slot
+// Scoped by Namespace + KeyProviderID to prevent collisions between different providers
 func (s *InMemoryKeySlotStore) storageKey(slot *KeySlot) string {
-	return slot.TokenType + ":" + string(slot.Position)
+	return slot.Namespace + "|" + slot.KeyProviderID + ":" + string(slot.Position)
 }
 
 // copySlot creates a deep copy of a KeySlot
 func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 	copy := &KeySlot{
-		Position:     slot.Position,
-		TokenType:    slot.TokenType,
+		Position:      slot.Position,
+		Namespace:     slot.Namespace,
 		KeyProviderID: slot.KeyProviderID,
 	}
 
@@ -118,4 +119,3 @@ func (s *InMemoryKeySlotStore) copySlot(slot *KeySlot) *KeySlot {
 
 	return copy
 }
-

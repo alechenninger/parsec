@@ -21,8 +21,11 @@ type Config struct {
 	// DataSources for token enrichment
 	DataSources []DataSourceConfig `koanf:"data_sources"`
 
-	// KeyManagers defines named key manager instances
-	KeyManagers []KeyManagerConfig `koanf:"key_managers"`
+	// KeyProviders defines named key provider instances
+	KeyProviders []KeyProviderConfig `koanf:"key_providers"`
+
+	// Signers defines named signer instances (e.g., rotating key signers)
+	Signers []SignerConfig `koanf:"signers"`
 
 	// Issuers configuration for different token types
 	Issuers []IssuerConfig `koanf:"issuers"`
@@ -198,9 +201,9 @@ type IssuerConfig struct {
 	IssuerURL string `koanf:"issuer_url"`
 	TTL       string `koanf:"ttl"` // Duration string like "5m"
 
-	// KeyManager references a named key manager from the global key_managers config
-	// Used for transaction tokens to configure the key manager
-	KeyManager string `koanf:"key_manager"`
+	// SignerID references a named signer from the global signers config
+	// Used for transaction tokens to configure the signer
+	SignerID string `koanf:"signer_id"`
 
 	// Transaction token issuer fields (stub, transaction_token types)
 	// These mappers build the "tctx" and "req_ctx" claims
@@ -215,16 +218,16 @@ type IssuerConfig struct {
 	IncludeRequestContext bool `koanf:"include_request_context"`
 }
 
-// KeyManagerConfig configures a key manager
-type KeyManagerConfig struct {
-	// ID uniquely identifies this key manager
+// KeyProviderConfig configures a key provider
+type KeyProviderConfig struct {
+	// ID uniquely identifies this key provider
 	ID string `koanf:"id"`
 
-	// Type selects the key manager implementation
+	// Type selects the key provider implementation
 	// Options: "memory", "aws_kms", "disk"
 	Type string `koanf:"type"`
 
-	// KeyType is the cryptographic key type this manager creates
+	// KeyType is the cryptographic key type this provider creates
 	// Options: "EC-P256", "EC-P384", "RSA-2048", "RSA-4096"
 	KeyType string `koanf:"key_type"`
 
@@ -237,8 +240,31 @@ type KeyManagerConfig struct {
 	Region      string `koanf:"region"`       // AWS region (e.g., "us-east-1")
 	AliasPrefix string `koanf:"alias_prefix"` // KMS alias prefix (e.g., "alias/parsec/")
 
-	// Disk key manager fields
+	// Disk key provider fields
 	KeysPath string `koanf:"keys_path"` // Path to directory for storing keys
+}
+
+// SignerConfig configures a signer
+type SignerConfig struct {
+	// ID uniquely identifies this signer
+	ID string `koanf:"id"`
+
+	// Type selects the signer implementation
+	// Options: "dual_slot"
+	Type string `koanf:"type"`
+
+	// Namespace is an optional logical namespace for keys (defaults to ID if not set)
+	Namespace string `koanf:"namespace"`
+
+	// KeyProviderID references a named key provider from the global key_providers config
+	KeyProviderID string `koanf:"key_provider_id"`
+
+	// Rotation parameters for dual_slot signer
+	KeyTTL            string `koanf:"key_ttl"`            // Duration string like "24h"
+	RotationThreshold string `koanf:"rotation_threshold"` // Duration string like "6h"
+	GracePeriod       string `koanf:"grace_period"`       // Duration string like "2h"
+	CheckInterval     string `koanf:"check_interval"`     // Duration string like "1m"
+	PrepareTimeout    string `koanf:"prepare_timeout"`    // Duration string like "1m"
 }
 
 // ClaimsFilterConfig configures the claims filter registry
