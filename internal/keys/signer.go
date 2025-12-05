@@ -39,8 +39,16 @@ type KeyHandle interface {
 // RotatingSigner manages active keys and rotation.
 type RotatingSigner interface {
 	// GetCurrentSigner returns a signer bound to the provided context and the current active key.
-	// It returns the signer (for use with JWT lib) and the metadata (kid, alg) for JWT headers.
-	// The returned Signer detects key mismatches (race conditions) internally.
+	//
+	// The returned signer MUST only be used within the bounds of the provided context.
+	// As a result, this method is usually called for every request. The signer is not reused.
+	//
+	// Getting the current signer does not typically involve I/O, however using the returned signer usually does.
+	// Due to this, there are race conditions where the signature may be generated with a different key
+	// than the one identified by the returned [keyID].
+	// If this happens, the signer detects this and returns an [ErrKeyMismatch].
+	// Because keys are generally only changed once they are no longer used,
+	// this should be extremely rare.
 	GetCurrentSigner(ctx context.Context) (signer crypto.Signer, keyID KeyID, alg Algorithm, err error)
 
 	// PublicKeys returns the current set of valid public keys.
